@@ -52,7 +52,7 @@ private:
     juce::TextButton enableButton { "On" }, soloButton { "Solo" }, deleteButton { "Delete" };
 
     // Dynamic EQ.
-    juce::TextButton dynButton { "Dynamic" }, scButton { "SC" };
+    juce::TextButton dynButton { "Dynamic" }, scButton { "SC" }, lookaheadButton { "LA" };
     juce::Slider thrKnob, rangeKnob, ratioKnob, attKnob, relKnob;
     juce::Label thrLabel, rangeLabel, ratioLabel, attLabel, relLabel;
     juce::Rectangle<int> dynActivityArea, dynSectionArea;
@@ -62,7 +62,7 @@ private:
     std::unique_ptr<SliderAttachment> freqAtt, gainAtt, qAtt;
     std::unique_ptr<ButtonAttachment> enableAtt;
     std::unique_ptr<SliderAttachment> thrAtt, rangeAtt, ratioAtt, attAtt, relAtt;
-    std::unique_ptr<ButtonAttachment> dynAtt, scAtt;
+    std::unique_ptr<ButtonAttachment> dynAtt, scAtt, lookaheadAtt;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BandPanel)
 };

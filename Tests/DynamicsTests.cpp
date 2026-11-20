@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <vector>
 
 using namespace peq;
@@ -418,4 +419,55 @@ TEST_CASE ("Dynamics: switching the detector source mid-stream stays smooth and 
     }
     // A 500 Hz sine at 0.3 moves at most 0.3 * 2 pi * 500 / 48000 = 0.0196 per sample.
     CHECK (maxStep < 0.025);
+}
+
+TEST_CASE ("Dynamics: look-ahead input lets the band act before a burst arrives")
+{
+    // Silence, then a loud 2 kHz burst. The processed audio is the burst
+    // delayed by 5 ms; the detector hears the undelayed burst.
+    const int delay = 240;   // 5 ms at 48 kHz
+    const size_t n = 9600;
+    const size_t onset = 4800;
+    std::vector<double> raw (n, 0.0);
+    for (size_t i = onset; i < n; ++i)
+        raw[i] = 0.5 * std::sin (2.0 * pi * 2000.0 * (double) (i - onset) / fs);
+    std::vector<double> delayed (n, 0.0);
+    for (size_t i = (size_t) delay; i < n; ++i)
+        delayed[i] = raw[i - (size_t) delay];
+
+    DynamicSettings d;
+    d.enabled = true; d.thresholdDb = -30.0; d.rangeDb = -12.0; d.attackMs = 1.0; d.releaseMs = 100.0;
+    BandParameters p;
+    p.type = FilterType::Bell; p.frequencyHz = 2000.0; p.q = 1.0;
+
+    auto firstMsDb = [&] (bool useLookahead)
+    {
+        FilterEngine e;
+        e.setBand (0, p, ChannelMode::Stereo);
+        e.setBandDynamics (0, d);
+        e.prepare (fs);
+        auto l = delayed, r = delayed;
+        for (size_t pos = 0; pos < n; pos += 64)
+        {
+            const int len = (int) std::min<size_t> (64, n - pos);
+            double* ch[2] = { l.data() + pos, r.data() + pos };
+            FilterEngine::LookaheadInput la;
+            la.lr[0] = la.lr[1] = raw.data() + pos;
+            la.ms[0] = raw.data() + pos;
+            la.ms[1] = raw.data() + pos;   // unused for a stereo band
+            e.process (ch, 2, len, nullptr, 0, useLookahead ? &la : nullptr);
+        }
+        // Level of the first 2 ms of the burst as it leaves the band.
+        double peak = 0.0;
+        for (size_t i = onset + (size_t) delay; i < onset + (size_t) delay + 96; ++i)
+            peak = std::max (peak, std::abs (l[i]));
+        return toDb (peak);
+    };
+    const double without = firstMsDb (false);
+    const double with = firstMsDb (true);
+    std::printf ("    look-ahead burst onset: %.2f dB without, %.2f dB with\n", without, with);
+    // Without look-ahead the burst's start gets through almost untouched;
+    // with it the band is already turned down when the burst arrives.
+    CHECK (without > toDb (0.5) - 3.0);
+    CHECK (with < without - 4.0);   // measured: about 5.5 dB lower (-6.3 vs -11.8 dB)
 }

@@ -100,7 +100,17 @@ bool EQBand::updateDynamics (double* const* channels, int firstChannel, int numC
                 st.reset();
             detectorExternal = external;
         }
-        const double* const* src = external ? sidechain : channels;
+        // Look-ahead: the own signal comes from the undelayed copy (indexed
+        // like the processed channels, so offset by firstChannel).
+        const double* ownSrc[maxChannels] {};
+        const double* const* own = channels;
+        if (! external && ownDetector != nullptr)
+        {
+            for (int ch = 0; ch < numChannels; ++ch)
+                ownSrc[ch] = ownDetector[firstChannel + ch];
+            own = ownSrc;
+        }
+        const double* const* src = external ? sidechain : own;
         const int srcChannels = external ? numSidechainChannels : numChannels;
         const int stateOffset = external ? 0 : firstChannel;
 

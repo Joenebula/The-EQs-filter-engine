@@ -54,6 +54,13 @@ BandPanel::BandPanel (ParaEQAudioProcessor& p, AllBands& b)
     scButton.setTooltip ("External sidechain: the band reacts to the signal sent to ParaEQ's sidechain input "
                          "(in Cubase, activate the plugin's side-chain and route a track to it) instead of its own audio");
     addAndMakeVisible (scButton);
+    lookaheadButton.setClickingTogglesState (true);
+    lookaheadButton.setTooltip ("Look-ahead (all dynamic bands): delays the audio by 5 ms so dynamic bands react "
+                                "before a sharp hit instead of just after it. Adds 5 ms latency while on "
+                                "(Cubase compensates it automatically); off = zero latency.");
+    addAndMakeVisible (lookaheadButton);
+    // Global setting, so attached once rather than per band.
+    lookaheadAtt = std::make_unique<ButtonAttachment> (processor.getState(), params::lookahead, lookaheadButton);
     dynButton.setClickingTogglesState (true);
     dynButton.setTooltip ("Dynamic EQ: the band's gain moves by up to Range while its frequency region is above Threshold");
     addAndMakeVisible (dynButton);
@@ -118,6 +125,7 @@ void BandPanel::showBand (int newBand)
         enableButton.setColour (juce::TextButton::buttonOnColourId, colour);
         dynButton.setColour (juce::TextButton::buttonOnColourId, colour);
         scButton.setColour (juce::TextButton::buttonOnColourId, colour);
+        lookaheadButton.setColour (juce::TextButton::buttonOnColourId, colour);
         updateEnablement();
     }
     repaint();
@@ -137,6 +145,7 @@ void BandPanel::updateEnablement()
     for (auto* k : { &thrKnob, &rangeKnob, &ratioKnob, &attKnob, &relKnob })
         k->setEnabled (dynOn);
     scButton.setEnabled (dynOn);
+    lookaheadButton.setEnabled (dynOn);
 
     const bool soloed = processor.getSoloBand() == band;
     soloButton.setToggleState (soloed, juce::dontSendNotification);
@@ -242,7 +251,12 @@ void BandPanel::resized()
     placeCombo (combos, slopeLabel, slopeBox);
     auto combos2 = column (narrow ? 92 : 108);
     placeCombo (combos2.removeFromTop (combos2.getHeight() / 2), modeLabel, modeBox);
-    dynActivityArea = combos2.removeFromBottom (15);
+    {
+        auto row = combos2.removeFromBottom (15);
+        lookaheadButton.setBounds (row.removeFromRight (narrow ? 30 : 34));
+        row.removeFromRight (3);
+        dynActivityArea = row;
+    }
     combos2.removeFromBottom (3);
     {
         auto row = combos2.removeFromBottom (26).reduced (0, 1);

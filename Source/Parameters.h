@@ -33,6 +33,11 @@ namespace peq::params
     /** Auto Gain: output correction that keeps the level steady while you
         EQ (see DSP/AutoGain.h). Added in 1.4, default off. */
     inline constexpr const char* autoGain    = "auto_gain";
+    /** Look-ahead for dynamic bands: delays the audio by lookaheadMs so the
+        detectors hear what is coming. Adds that latency (reported to the
+        host) only while on. Added in 1.4, default off, not automatable. */
+    inline constexpr const char* lookahead   = "lookahead";
+    inline constexpr double lookaheadMs      = 5.0;
 
     inline constexpr int numBands = FilterEngine::numBands;
 

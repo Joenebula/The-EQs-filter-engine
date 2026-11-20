@@ -14,11 +14,18 @@
     click-free global bypass. Every control is a host-automatable parameter,
     saved with the project. Processing is double precision throughout.
 */
-class ParaEQAudioProcessor final : public juce::AudioProcessor
+class ParaEQAudioProcessor final : public juce::AudioProcessor,
+                                   private juce::AsyncUpdater
 {
 public:
     ParaEQAudioProcessor();
-    ~ParaEQAudioProcessor() override = default;
+    ~ParaEQAudioProcessor() override { cancelPendingUpdate(); }
+
+    /** Latency added by look-ahead right now (samples; 0 when off). */
+    int getLookaheadLatency() const noexcept { return lookaheadActive.load() ? lookaheadSamples : 0; }
+    /** Reports a pending latency change to the host now instead of on the
+        next message loop pass (message thread; used by tests). */
+    void flushLatencyUpdate() { handleUpdateNowIfNeeded(); }
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -180,6 +187,17 @@ private:
 
     juce::AudioBuffer<double> doubleBuffer;   // preallocated for the float path
     juce::AudioBuffer<double> dryBuffer;      // preallocated for click-free bypass
+
+    // Look-ahead (1.4): the main channels run through a fixed delay while the
+    // dynamic detectors hear the undelayed input.
+    void handleAsyncUpdate() override;        // reports the new latency (message thread)
+    void applyLookaheadDelay (juce::AudioBuffer<double>& buffer, int numChannels) noexcept;
+    std::atomic<float>* lookaheadParam = nullptr;
+    std::atomic<bool> lookaheadActive { false };
+    int lookaheadSamples = 0;
+    int delayPos = 0;
+    juce::AudioBuffer<double> delayLines;     // 2 x lookaheadSamples
+    juce::AudioBuffer<double> aheadBuffer;    // undelayed input: L, R, then mid, side
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParaEQAudioProcessor)
 };

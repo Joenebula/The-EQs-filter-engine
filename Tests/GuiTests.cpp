@@ -66,6 +66,25 @@ int main (int argc, char** argv)
 
     save (*editor, outDir.getChildFile ("01-empty.png"));
 
+    // 1.4: the Auto (Auto Gain) button sits in the top bar and fits beside
+    // the preset name at the default size.
+    {
+        juce::TextButton* autoButton = nullptr;
+        for (auto* c : editor->getChildren())
+            if (auto* tb = dynamic_cast<juce::TextButton*> (c); tb != nullptr && tb->getButtonText() == "Auto")
+                autoButton = tb;
+        check (autoButton != nullptr && autoButton->isVisible() && autoButton->getWidth() >= 40
+                   && autoButton->getY() < 46,
+               "top bar shows the Auto (Auto Gain) button");
+        if (autoButton != nullptr)
+        {
+            autoButton->setToggleState (true, juce::sendNotificationSync);
+            check (proc->getState().getRawParameterValue (peq::params::autoGain)->load() >= 0.5f, "Auto button switches Auto Gain on");
+            check (autoButton->getTooltip().contains ("Correction for the current curve"), "Auto button tooltip shows the correction");
+            autoButton->setToggleState (false, juce::sendNotificationSync);
+        }
+    }
+
     // Click at 1 kHz / +6 dB -> a bell band there.
     const int b0 = graph.addBandAt (pointFor (graph, 1000.0, 6.0));
     check (b0 == 0, "clicking the graph adds band 1");
@@ -241,6 +260,21 @@ int main (int argc, char** argv)
                 check (value (*proc, dynBand, BandField::sc) >= 0.5f, "SC button switches the band to the sidechain");
                 scButton->setToggleState (false, juce::sendNotificationSync);
             }
+            // 1.4: LA (look-ahead, global) sits next to the activity bar.
+            juce::TextButton* laButton = nullptr;
+            for (auto* c : editor->getBandPanel().getChildren())
+                if (auto* tb = dynamic_cast<juce::TextButton*> (c); tb != nullptr && tb->getButtonText() == "LA")
+                    laButton = tb;
+            check (laButton != nullptr && laButton->isVisible() && laButton->isEnabled() && laButton->getWidth() >= 24,
+                   "band panel shows the LA (look-ahead) button for a dynamic band");
+            if (laButton != nullptr)
+            {
+                laButton->setToggleState (true, juce::sendNotificationSync);
+                check (proc->getState().getRawParameterValue (peq::params::lookahead)->load() >= 0.5f,
+                       "LA button switches look-ahead on");
+                laButton->setToggleState (false, juce::sendNotificationSync);
+            }
+
             setParam (BandField::ratio, 6.0f);
             editor->getBandPanel().refreshActivity();
             bool ratioShown = false;

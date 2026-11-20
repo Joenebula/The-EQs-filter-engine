@@ -1,3 +1,36 @@
+# Version 1.4: Auto Gain and look-ahead (2026-11-20)
+
+## What changed
+
+- **Auto Gain** (global parameter `auto_gain`, off by default, **Auto**
+  button in the top bar): an output correction that undoes the EQ curve's
+  average level change. It is worked out from the static curve (pink-weighted
+  power average over 20 Hz to 20 kHz; L/R/M/S bands at about half strength),
+  not from the audio, so it never pumps. Clamped to +/-24 dB. Saved with the
+  project, not in presets. The button's tooltip shows the current correction.
+- **Look-ahead** for dynamic bands (global parameter `lookahead`, off by
+  default, not automatable; **LA** button in the band panel's dynamic
+  section). On: the main audio (and the bypass path) is delayed by 5 ms and
+  the dynamic detectors hear the undelayed input (in L/R or M/S as each band
+  needs). The 5 ms is reported to the host as latency only while on. Saved
+  with the project, not in presets. With look-ahead on, detectors listen to
+  ParaEQ's input rather than to the output of the earlier bands.
+- Top bar spacing tightened at the default size so the preset name still
+  fits beside the new Auto button.
+- 367 parameters (7 global + 24 x 15).
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **63 tests, 0 failures** (7 new: 6 Auto Gain, 1 look-ahead) |
+| Plugin tests (Linux; Windows CI) | **107 checks, 0 failures** (14 new). Auto Gain: a +9 dB wide bell (Q 0.4) gets -4.20 dB, and the output at 1 kHz drops by exactly that. Look-ahead: reports 240 samples at 48 kHz, audio comes out exactly 240 samples later (bypassed too), back to 0 when off, restored when a project loads. First 2 ms of a sudden -6 dBFS burst: -6.57 dB without look-ahead, -12.99 dB with. |
+| GUI tests (Linux, Xvfb) | **All pass** (5 new: Auto button shown and working, tooltip shows the correction, LA button shown and working) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** In particular, whether Cubase picks up the latency change straight away when LA is switched during playback is untested. |
+
+---
+
 # Version 1.3: sidechain and ratio for dynamic bands (2026-11-20)
 
 ## What changed

@@ -5,7 +5,7 @@ Cubase. It has a large interactive EQ graph, a real-time spectrum analyser,
 dynamic EQ on any bell or shelf (with an external sidechain), left/right/mid/side processing per band,
 presets, A/B compare and full automation.
 
-Version 1.3 · Vendor "Home Studio" · Personal use.
+Version 1.4 · Vendor "Home Studio" · Personal use.
 
 ---
 
@@ -60,11 +60,26 @@ From left to right along the top:
 | **Analog** | Analog-matched curves (see below). On by default. |
 | Scale knob | **Gain Scale**: makes every band's boost or cut bigger or smaller together, 0 to 200 %. 100 % = as set, 0 % = flat. Double-click for 100 %. Saved in presets. |
 | **IN / OUT** | Input and output gain, -24 to +24 dB. Double-click to reset. |
+| **Auto** | **Auto Gain**: keeps the overall level the same as you EQ, so you hear the tone change rather than "louder = better". Hover over it to see the correction it's applying. Off by default. |
 | Meter | Output peak level. Red light = went over 0 dBFS; click to reset. |
 | **Bypass** | Turns the whole EQ off (click-free). |
 
 The window can be resized from its bottom-right corner. Its size is saved with
 the project.
+
+### Auto Gain
+
+A boost makes things louder, and louder usually sounds "better", which
+makes it hard to judge an EQ move honestly. With **Auto** on, ParaEQ turns
+its output down (or up) by about as much as the EQ curve adds (or takes
+away), so switching Bypass compares tone, not loudness.
+
+It is worked out from the curve, not by listening to the audio, so it never
+pumps. A broad boost gets a bigger correction than a narrow one, because it
+changes the loudness more. It is an estimate for typical full-range music;
+on a narrow source (a bass on its own, a hi-hat) the real level change can
+differ. Dynamic bands count at their set Gain. The correction comes on top
+of **OUT**. It is saved with the project but not in presets.
 
 ### Analog-matched curves
 
@@ -171,6 +186,8 @@ bells and shelves.
    **Release**: how fast it lets go (5 ms to 2 s).
 6. **SC** (next to Dynamic): listen to the **sidechain** input instead of
    the band's own audio. See below.
+7. **LA** (next to the live bar): **look-ahead** for all dynamic bands. See
+   below.
 
 The band's normal **Gain** still applies: the dynamics move away from it. For
 example, Gain +3 dB with Range -6 dB gives +3 dB on quiet parts and down to
@@ -187,6 +204,25 @@ band-pass at the band's frequency and Q for a bell, low or high frequencies
 for a shelf). L/R/M/S bands listen only to their own channel. Above the
 threshold the gain moves by the ratio (1 dB for every 2 dB over at 2:1),
 with a soft knee, up to the range.
+
+### Look-ahead
+
+A dynamic band normally reacts *after* a loud sound starts, so the first
+few milliseconds of a sharp hit (a snare, a hard "t" or "s") can slip
+through. With **LA** on, ParaEQ delays its audio by 5 ms while the dynamic
+bands listen to the undelayed signal, so they are already moving when the
+sound arrives. In the tests the first 2 ms of a sudden loud tone came
+through about 6 dB quieter with look-ahead than without.
+
+- It applies to every dynamic band in this ParaEQ (the button is the same
+  on every band).
+- It adds **5 ms of latency** while on. Cubase compensates it automatically
+  (playback stays in time), but you'll feel it if you monitor a live input
+  through ParaEQ while recording. Off = zero latency, as before.
+- With look-ahead on, dynamic bands listen to ParaEQ's input rather than to
+  the output of the bands before them.
+- It is saved with the project, not in presets, and can't be automated
+  (changing the latency during playback would upset the timing).
 
 ### Sidechain (another track controls the band)
 
@@ -270,8 +306,9 @@ is in the preset menu. Both settings are saved with the project.
   "Band 1 Gain", and so on, grouped by band.
 - **Side-chain**: ParaEQ has an optional side-chain input for dynamic
   bands set to **SC** (see Dynamic EQ). It is off until you activate it.
-- **Latency**: zero. ParaEQ adds no delay, so it's safe for recording and
-  live monitoring.
+- **Latency**: zero, unless **LA** (look-ahead) is on, which adds 5 ms
+  that Cubase compensates. With LA off it's safe for recording and live
+  monitoring.
 - **64-bit processing**: supported (Studio > Studio Setup > Audio System >
   Processing Precision). ParaEQ works in 64-bit inside either way.
 - **Sample rates**: anything from 22.05 to 192 kHz. Bands above what the
@@ -312,8 +349,8 @@ is in the preset menu. Both settings are saved with the project.
 
 - Automation is applied once per audio block and glided over about 20 ms, so
   it's smooth but not sample-accurate.
-- Dynamic EQ has no look-ahead, so the very start of a sharp hit can pass
-  before a band reacts. The knee (6 dB) is fixed.
+- Look-ahead is fixed at 5 ms. The dynamic knee (6 dB) is fixed.
+- Auto Gain is an estimate from the curve, not a loudness measurement.
 - The combined curve is exact only for Stereo bands.
 - Analog-matched curves are very close to analogue but not perfect for
   bands centred right next to the top of the spectrum (about 1 dB on an

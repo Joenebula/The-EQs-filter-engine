@@ -188,14 +188,15 @@ int main()
     {
         auto p = makeProcessor();
         const auto& params = p->getParameters();
-        const int expected = 6 + peq::params::numBands * 15;
-        check (params.size() == expected, "parameter count = 6 global + 24 bands x 15");
+        const int expected = 7 + peq::params::numBands * 15;
+        check (params.size() == expected, "parameter count = 7 global + 24 bands x 15");
 
         bool allAutomatable = true, idsOk = true, uniqueIds = true;
         juce::StringArray ids;
         for (auto* prm : params)
         {
-            allAutomatable = allAutomatable && prm->isAutomatable();
+            if (auto* w = dynamic_cast<juce::AudioProcessorParameterWithID*> (prm); w == nullptr || w->paramID != peq::params::lookahead)
+                allAutomatable = allAutomatable && prm->isAutomatable();
             if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (prm))
             {
                 if (ids.contains (withId->paramID))
@@ -207,7 +208,7 @@ int main()
                 idsOk = false;
             }
         }
-        check (allAutomatable, "every parameter is automatable");
+        check (allAutomatable, "every parameter except look-ahead is automatable");
         check (idsOk && uniqueIds, "every parameter has a unique ID");
 
         // IDs saved in projects must never change.
@@ -254,7 +255,7 @@ int main()
             if (! near (getValue (pa), getValue (pb), 1e-3 * std::max (1.0, std::abs ((double) getValue (pa)))))
                 ++mismatches;
         }
-        check (mismatches == 0, "save then load restores all 366 parameters");
+        check (mismatches == 0, "save then load restores all 367 parameters");
         check (juce::exactlyEqual ((double) b->getState().state.getProperty ("displayRange"), 12.0), "editor settings saved with the state");
 
         auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
@@ -511,6 +512,106 @@ int main()
         auto q = makeProcessor();
         q->setStateInformation (saved.getData(), (int) saved.getSize());
         check (getValue (param (*q, peq::params::autoGain)) >= 0.5f, "auto gain: saved with the project");
+    }
+
+    // Look-ahead (1.4).
+    {
+        auto p = makeProcessor (48000.0, 512);
+        check (getValue (param (*p, peq::params::lookahead)) < 0.5f && p->getLatencySamples() == 0,
+               "look-ahead: off for a new instance, zero latency");
+        check (! param (*p, peq::params::lookahead)->isAutomatable(), "look-ahead is not automatable (it changes latency)");
+
+        // Switched on: latency reported, audio delayed by exactly that much.
+        setValue (param (*p, peq::params::lookahead), 1.0f);
+        juce::AudioBuffer<float> buf (2, 512);
+        juce::MidiBuffer midi;
+        buf.clear();
+        p->processBlock (buf, midi);                       // picks up the switch
+        p->flushLatencyUpdate();                           // latency report is async
+        const int latency = p->getLatencySamples();
+        check (latency == 240 && p->getLookaheadLatency() == 240, "look-ahead: reports 5 ms latency (240 samples at 48 kHz)");
+
+        auto impulseAt = [&] (ParaEQAudioProcessor& proc, int where)
+        {
+            int found = -1;
+            for (int block = 0; block < 3 && found < 0; ++block)
+            {
+                buf.clear();
+                if (block == 0)
+                    for (int ch = 0; ch < 2; ++ch)
+                        buf.setSample (ch, where, 1.0f);
+                proc.processBlock (buf, midi);
+                for (int i = 0; i < 512 && found < 0; ++i)
+                    if (std::abs (buf.getSample (0, i)) > 0.5f)
+                        found = block * 512 + i;
+            }
+            return found;
+        };
+        check (impulseAt (*p, 100) == 100 + 240, "look-ahead: audio comes out exactly 240 samples later");
+
+        // Bypass keeps the same delay, so switching bypass doesn't jump in time.
+        setValue (param (*p, peq::params::bypass), 1.0f);
+        for (int i = 0; i < 10; ++i) { buf.clear(); p->processBlock (buf, midi); }
+        check (impulseAt (*p, 50) == 50 + 240, "look-ahead: bypassed audio is delayed the same");
+        setValue (param (*p, peq::params::bypass), 0.0f);
+
+        // Off again: back to zero latency.
+        setValue (param (*p, peq::params::lookahead), 0.0f);
+        buf.clear();
+        p->processBlock (buf, midi);
+        p->flushLatencyUpdate();
+        check (p->getLatencySamples() == 0 && impulseAt (*p, 10) == 10, "look-ahead off: zero latency again");
+
+        // Not in presets; saved with the project (and the latency comes back).
+        setValue (param (*p, peq::params::lookahead), 1.0f);
+        check (! p->getPresets().capture().getChildWithProperty ("id", peq::params::lookahead).isValid(),
+               "look-ahead is not saved in presets");
+        juce::MemoryBlock saved;
+        p->getStateInformation (saved);
+        auto q = makeProcessor (48000.0, 512);
+        q->setStateInformation (saved.getData(), (int) saved.getSize());
+        q->prepareToPlay (48000.0, 512);
+        check (q->getLatencySamples() == 240, "look-ahead: saved with the project, latency restored on load");
+    }
+    {
+        // A dynamic band catches the start of a burst much better with look-ahead.
+        auto onsetDb = [] (bool la)
+        {
+            auto p = makeProcessor (48000.0, 256);
+            setValue (bandParam (*p, 0, BandField::used), 1.0f);
+            setValue (bandParam (*p, 0, BandField::freq), 2000.0f);
+            setValue (bandParam (*p, 0, BandField::dyn), 1.0f);
+            setValue (bandParam (*p, 0, BandField::thr), -30.0f);
+            setValue (bandParam (*p, 0, BandField::range), -12.0f);
+            setValue (bandParam (*p, 0, BandField::att), 1.0f);
+            setValue (param (*p, peq::params::lookahead), la ? 1.0f : 0.0f);
+            const int delay = la ? 240 : 0;
+            juce::AudioBuffer<float> buf (2, 256);
+            juce::MidiBuffer midi;
+            const int onset = 4864;
+            double peak = 0.0;
+            for (int block = 0; block < 40; ++block)
+            {
+                for (int i = 0; i < 256; ++i)
+                {
+                    const int t = block * 256 + i;
+                    const float x = t >= onset ? (float) (0.5 * std::sin (2.0 * pi * 2000.0 * (t - onset) / 48000.0)) : 0.0f;
+                    buf.setSample (0, i, x);
+                    buf.setSample (1, i, x);
+                }
+                p->processBlock (buf, midi);
+                for (int i = 0; i < 256; ++i)
+                {
+                    const int t = block * 256 + i - delay;   // time in the input's frame
+                    if (t >= onset && t < onset + 96)
+                        peak = std::max (peak, (double) std::abs (buf.getSample (0, i)));
+                }
+            }
+            return 20.0 * std::log10 (peak);
+        };
+        const double without = onsetDb (false), with = onsetDb (true);
+        std::printf ("       first 2 ms of a -6 dBFS burst: %.2f dB without look-ahead, %.2f dB with\n", without, with);
+        check (with < without - 4.0, "look-ahead: dynamic band catches the start of a burst (4+ dB lower)");
     }
 
     // Corrupt or foreign data is ignored.

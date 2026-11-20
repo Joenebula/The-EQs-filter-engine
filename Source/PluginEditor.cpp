@@ -102,6 +102,8 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
     bypassAtt  = std::make_unique<ButtonAttachment> (state, peq::params::bypass, bypassButton);
     analogAtt  = std::make_unique<ButtonAttachment> (state, peq::params::analogMatch, analogButton);
     autoGainAtt = std::make_unique<ButtonAttachment> (state, peq::params::autoGain, autoGainButton);
+    autoGainButton.onStateChange = [this] { updateAutoGainTooltip(); };
+    updateAutoGainTooltip();
 
     for (auto [label, text] : { std::pair { &inGainLabel, "IN" }, std::pair { &outGainLabel, "OUT" }, std::pair { &rangeLabel, "RANGE" }, std::pair { &scaleLabel, "SCALE" } })
     {
@@ -522,6 +524,7 @@ void ParaEQAudioProcessorEditor::resized()
     auto area = getLocalBounds();
     auto bar = area.removeFromTop (topBarHeight).reduced (10, 9);
     const bool compact = getWidth() < 960;
+    const bool mid = getWidth() < 1180;      // default size: tighter spacing
     bar.removeFromLeft (compact ? 72 : 92);  // title
 
     // Right side: IN, OUT, meter, Bypass.
@@ -529,14 +532,14 @@ void ParaEQAudioProcessorEditor::resized()
     bar.removeFromRight (compact ? 6 : 10);
     outputMeter.setBounds (bar.removeFromRight (14).withSizeKeepingCentre (14, juce::jmin (bar.getHeight() + 6, 34)));
     bar.removeFromRight (compact ? 6 : 10);
-    autoGainButton.setBounds (bar.removeFromRight (compact ? 42 : 48));
+    autoGainButton.setBounds (bar.removeFromRight (compact ? 40 : (mid ? 44 : 48)));
     bar.removeFromRight (compact ? 2 : 6);
-    const int knobW = compact ? 30 : (getWidth() < 1180 ? 88 : 100);   // compact: knob only, value on hover/drag
+    const int knobW = compact ? 30 : (mid ? 80 : 100);   // compact: knob only, value on hover/drag
     for (auto* k : { &inGainKnob, &outGainKnob })
-        k->setTextBoxStyle (compact ? juce::Slider::NoTextBox : juce::Slider::TextBoxRight, false, 58, 18);
+        k->setTextBoxStyle (compact ? juce::Slider::NoTextBox : juce::Slider::TextBoxRight, false, mid ? 52 : 58, 18);
     outGainKnob.setBounds (bar.removeFromRight (knobW));
     outGainLabel.setBounds (bar.removeFromRight (compact ? 30 : 34));
-    bar.removeFromRight (compact ? 2 : 10);
+    bar.removeFromRight (compact ? 2 : (mid ? 6 : 10));
     inGainKnob.setBounds (bar.removeFromRight (knobW));
     inGainLabel.setBounds (bar.removeFromRight (compact ? 20 : 26));
     bar.removeFromRight (compact ? 2 : 8);
@@ -547,21 +550,21 @@ void ParaEQAudioProcessorEditor::resized()
     scaleLabel.setVisible (scaleLabelFits);
     if (scaleLabelFits)
         scaleLabel.setBounds (bar.removeFromRight (44));
-    bar.removeFromRight (compact ? 4 : 10);
+    bar.removeFromRight (compact ? 4 : (mid ? 6 : 10));
 
     // Left side: Undo, Redo, presets, A/B, range, analyser.
-    undoButton.setBounds (bar.removeFromLeft (compact ? 48 : 56));
+    undoButton.setBounds (bar.removeFromLeft (compact ? 42 : (mid ? 52 : 56)));
     bar.removeFromLeft (4);
-    redoButton.setBounds (bar.removeFromLeft (compact ? 48 : 56));
-    bar.removeFromLeft (compact ? 8 : 14);
+    redoButton.setBounds (bar.removeFromLeft (compact ? 42 : (mid ? 52 : 56)));
+    bar.removeFromLeft (compact ? 6 : (mid ? 10 : 14));
 
     rangeLabel.setVisible (false);
-    analogButton.setBounds (bar.removeFromRight (compact ? 54 : 62));
+    analogButton.setBounds (bar.removeFromRight (compact ? 52 : 62));
     bar.removeFromRight (4);
-    analyserButton.setBounds (bar.removeFromRight (compact ? 70 : 80));
+    analyserButton.setBounds (bar.removeFromRight (compact ? 64 : (mid ? 74 : 80)));
     bar.removeFromRight (compact ? 4 : 6);
-    rangeBox.setBounds (bar.removeFromRight (compact ? 88 : 98));
-    bar.removeFromRight (compact ? 4 : 10);
+    rangeBox.setBounds (bar.removeFromRight (compact ? 88 : (mid ? 88 : 98)));
+    bar.removeFromRight (compact ? 4 : (mid ? 6 : 10));
 
     abButton.setBounds (bar.removeFromRight (34));
     bar.removeFromRight (4);
