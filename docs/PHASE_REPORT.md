@@ -6,9 +6,9 @@
 |---|---|
 | DSP + engine tests, GCC 13 Release (Linux) | **27 tests, 191,659 checks, 0 failures** |
 | Same tests with AddressSanitizer + UBSan, `-Wconversion -Wshadow -Werror` | 0 failures, no warnings, no sanitizer reports |
-| Visual Studio 2022 x64 build (GitHub Actions) | CI_BUILD |
-| Tests on Windows (GitHub Actions) | CI_TESTS |
-| pluginval, strictness 5 (GitHub Actions, Windows) | CI_PLUGINVAL |
+| Visual Studio 2022 x64 build (GitHub Actions) | Builds, no errors |
+| Tests on Windows (GitHub Actions) | **27 tests, 0 failures** |
+| pluginval, strictness 5 (GitHub Actions, Windows) | **Passed** (exit code 0; scan, open, editor, audio at 44.1/48/96 kHz, state, automation, buses) |
 | Cubase scan / load / automation | **Not tested yet** (needs Joe's PC) |
 
 ## Phase 3: multi-band filter implementation (done)
