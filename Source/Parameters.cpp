@@ -9,7 +9,7 @@ using namespace juce;
 
 String bandID (int bandIndex, BandField field)
 {
-    static const char* const suffix[] = { "on", "type", "freq", "gain", "q", "slope", "mode" };
+    static const char* const suffix[] = { "on", "type", "freq", "gain", "q", "slope", "mode", "used" };
     return "b" + String (bandIndex + 1).paddedLeft ('0', 2) + "_" + suffix[(int) field];
 }
 
@@ -93,8 +93,10 @@ AudioProcessorValueTreeState::ParameterLayout createLayout()
         const String n = "Band " + String (b + 1) + " ";
         auto group = std::make_unique<AudioProcessorParameterGroup> ("band" + String (b + 1), "Band " + String (b + 1), " | ");
 
+        group->addChild (std::make_unique<AudioParameterBool> (ParameterID { bandID (b, BandField::used), version },
+                                                               n + "Used", false));
         group->addChild (std::make_unique<AudioParameterBool> (ParameterID { bandID (b, BandField::on), version },
-                                                               n + "On", false));
+                                                               n + "Enabled", true));
         group->addChild (std::make_unique<AudioParameterChoice> (ParameterID { bandID (b, BandField::type), version },
                                                                  n + "Type", typeNames, 0));
         group->addChild (std::make_unique<AudioParameterFloat> (ParameterID { bandID (b, BandField::freq), version },

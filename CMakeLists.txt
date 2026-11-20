@@ -16,6 +16,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # ---------------------------------------------------------------------------
 option(PEQ_BUILD_PLUGIN "Build the VST3 plugin" ON)
 option(PEQ_BUILD_TESTS  "Build the DSP unit tests" ON)
+option(PEQ_BUILD_GUI_TESTS "Build the headless GUI test (needs a display; development only)" OFF)
 option(PEQ_COPY_AFTER_BUILD "Copy the VST3 to the system plugin folder after building" OFF)
 set(PEQ_JUCE_DIR "" CACHE PATH "Path to a local JUCE checkout (optional)")
 set(PEQ_JUCE_TAG "8.0.12" CACHE STRING "JUCE git tag to download when PEQ_JUCE_DIR is empty")
@@ -48,6 +49,7 @@ if(PEQ_BUILD_TESTS)
         Tests/TestMain.cpp
         Tests/DSPTests.cpp
         Tests/EngineTests.cpp
+        Tests/GraphTests.cpp
     )
     target_link_libraries(peq_tests PRIVATE peq_dsp)
     add_test(NAME peq_dsp_tests COMMAND peq_tests)

@@ -1,0 +1,158 @@
+// Headless GUI test (development only): builds the real processor and editor,
+// drives the graph through the same actions the mouse handlers use, checks
+// the resulting parameter values and saves screenshots.
+//
+// Usage: peq_gui_tests <output folder>
+
+#include "../Source/PluginProcessor.h"
+#include "../Source/PluginEditor.h"
+#include "../Source/GUI/GraphMath.h"
+
+#include <cstdio>
+
+namespace
+{
+int failures = 0;
+
+void check (bool ok, const char* what)
+{
+    std::printf ("[%s] %s\n", ok ? " OK " : "FAIL", what);
+    if (! ok)
+        ++failures;
+}
+
+bool near (double a, double b, double tol) { return std::abs (a - b) <= tol; }
+
+float value (ParaEQAudioProcessor& p, int band, peq::params::BandField f)
+{
+    auto* param = p.getState().getParameter (peq::params::bandID (band, f));
+    return param->convertFrom0to1 (param->getValue());
+}
+
+juce::Point<float> pointFor (peq::gui::EQGraph& g, double hz, double db)
+{
+    const auto plot = g.plotArea();
+    return { plot.getX() + (float) peq::graph::freqToX (hz, plot.getWidth()),
+             plot.getY() + (float) peq::graph::dbToY (db, plot.getHeight(), g.getDisplayRange()) };
+}
+
+void save (juce::Component& c, const juce::File& file)
+{
+    auto image = c.createComponentSnapshot (c.getLocalBounds(), true, 2.0f);
+    file.deleteFile();
+    juce::FileOutputStream out (file);
+    juce::PNGImageFormat().writeImageToStream (image, out);
+    std::printf ("       saved %s\n", file.getFullPathName().toRawUTF8());
+}
+}
+
+int main (int argc, char** argv)
+{
+    juce::ScopedJuceInitialiser_GUI juceInit;
+    using peq::params::BandField;
+
+    const juce::File outDir (argc > 1 ? juce::String (argv[1]) : juce::File::getCurrentWorkingDirectory().getFullPathName());
+    outDir.createDirectory();
+
+    std::unique_ptr<ParaEQAudioProcessor> proc (dynamic_cast<ParaEQAudioProcessor*> (createPluginFilter()));
+    proc->setRateAndBufferSizeDetails (48000.0, 512);
+    proc->prepareToPlay (48000.0, 512);
+
+    std::unique_ptr<juce::AudioProcessorEditor> base (proc->createEditor());
+    auto* editor = dynamic_cast<ParaEQAudioProcessorEditor*> (base.get());
+    check (editor != nullptr, "editor is created");
+    editor->setSize (1040, 640);
+    auto& graph = editor->getGraph();
+
+    save (*editor, outDir.getChildFile ("01-empty.png"));
+
+    // Click at 1 kHz / +6 dB -> a bell band there.
+    const int b0 = graph.addBandAt (pointFor (graph, 1000.0, 6.0));
+    check (b0 == 0, "clicking the graph adds band 1");
+    check (value (*proc, 0, BandField::used) > 0.5f, "band 1 is in use");
+    check ((int) value (*proc, 0, BandField::type) == (int) peq::FilterType::Bell, "band 1 is a bell");
+    check (near (value (*proc, 0, BandField::freq), 1000.0, 15.0), "band 1 frequency ~1 kHz");
+    check (near (value (*proc, 0, BandField::gain), 6.0, 0.2), "band 1 gain ~+6 dB");
+    check (graph.getSelectedBand() == 0, "new band is selected");
+
+    // Click near the bottom of the range -> low cut; near the top -> high cut.
+    const int b1 = graph.addBandAt (pointFor (graph, 20.0, 0.0));
+    check ((int) value (*proc, b1, BandField::type) == (int) peq::FilterType::HighPass, "click at 20 Hz adds a low cut (high-pass)");
+    const int b2 = graph.addBandAt (pointFor (graph, 19000.0, 0.0));
+    check ((int) value (*proc, b2, BandField::type) == (int) peq::FilterType::LowPass, "click at 19 kHz adds a high cut (low-pass)");
+
+    // More bands for the picture.
+    const int b3 = graph.addBandAt (pointFor (graph, 120.0, 4.0));
+    const int b4 = graph.addBandAt (pointFor (graph, 3500.0, -7.0));
+    graph.adjustQ (b4, 6.0);   // narrower
+    check (value (*proc, b4, BandField::q) > 3.0f, "mouse wheel narrows Q");
+    const int b5 = graph.addBandAt (pointFor (graph, 9000.0, 3.0));
+    peq::gui::BandParamRefs::setWithGesture (proc->getState().getParameter (peq::params::bandID (b5, BandField::type)),
+                                             (float) peq::FilterType::HighShelf);
+    peq::gui::BandParamRefs::setWithGesture (proc->getState().getParameter (peq::params::bandID (b5, BandField::mode)),
+                                             (float) peq::ChannelMode::Side);
+    const int b6 = graph.addBandAt (pointFor (graph, 400.0, -3.0));
+    peq::gui::BandParamRefs::setWithGesture (proc->getState().getParameter (peq::params::bandID (b6, BandField::on)), 0.0f);
+
+    graph.setSelectedBand (b4);
+    save (*editor, outDir.getChildFile ("02-bands.png"));
+
+    // Double-click resets gain.
+    graph.resetGain (b3);
+    check (near (value (*proc, b3, BandField::gain), 0.0, 1e-4), "double-click resets gain to 0 dB");
+
+    // Undo / redo.
+    auto& um = proc->getUndoManager();
+    proc->flushUndo();
+    um.undo();
+    check (near (value (*proc, b3, BandField::gain), 4.0, 0.2), "undo restores the gain");
+    um.redo();
+    check (near (value (*proc, b3, BandField::gain), 0.0, 1e-4), "redo re-applies the reset");
+
+    // Delete, then undo the delete.
+    graph.deleteBand (b6);
+    check (value (*proc, b6, BandField::used) < 0.5f, "delete removes the band");
+    um.undo();
+    check (value (*proc, b6, BandField::used) > 0.5f, "undo brings the deleted band back");
+
+    // Solo.
+    graph.toggleSolo (b4);
+    check (proc->getSoloBand() == b4, "solo selects the band");
+    save (*editor, outDir.getChildFile ("03-solo.png"));
+    graph.toggleSolo (b4);
+    check (proc->getSoloBand() == -1, "solo toggles off");
+
+    // Audio still runs and stays finite with all of this.
+    juce::AudioBuffer<float> buffer (2, 512);
+    juce::Random rng (1);
+    bool finite = true;
+    juce::MidiBuffer midi;
+    for (int block = 0; block < 200; ++block)
+    {
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < 512; ++i)
+                buffer.setSample (ch, i, rng.nextFloat() - 0.5f);
+        proc->processBlock (buffer, midi);
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < 512; ++i)
+                finite = finite && std::isfinite (buffer.getSample (ch, i));
+    }
+    check (finite, "processing with the GUI-made bands stays finite");
+
+    // State round-trip keeps the bands.
+    juce::MemoryBlock state;
+    proc->getStateInformation (state);
+    std::unique_ptr<ParaEQAudioProcessor> other (dynamic_cast<ParaEQAudioProcessor*> (createPluginFilter()));
+    other->setStateInformation (state.getData(), (int) state.getSize());
+    check (near (value (*other, b4, BandField::freq), value (*proc, b4, BandField::freq), 0.01), "saved state restores band frequency");
+    check (near (value (*other, b4, BandField::q), value (*proc, b4, BandField::q), 1e-4), "saved state restores band Q");
+    check (value (*other, b6, BandField::on) < 0.5f && value (*other, b6, BandField::used) > 0.5f, "saved state restores a bypassed band");
+
+    // Small window still lays out.
+    editor->setSize (760, 460);
+    save (*editor, outDir.getChildFile ("04-small.png"));
+
+    base.reset();
+    std::printf ("\n%s (%d failures)\n", failures == 0 ? "ALL GUI CHECKS PASSED" : "GUI CHECKS FAILED", failures);
+    return failures == 0 ? 0 : 1;
+}

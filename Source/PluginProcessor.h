@@ -48,6 +48,28 @@ public:
     juce::AudioProcessorParameter* getBypassParameter() const override { return bypassParam; }
 
     juce::AudioProcessorValueTreeState& getState() noexcept { return apvts; }
+    juce::UndoManager& getUndoManager() noexcept { return undoManager; }
+
+    /** Undo bookkeeping for editor actions. JUCE copies parameter changes into
+        the undoable state tree lazily (on a timer), so an action could end up
+        in the wrong undo step. These flush pending changes first, so every
+        edit lands in the step it belongs to. Message thread only. */
+    void flushUndo()                            { apvts.copyState(); }
+    void beginUndoStep (const juce::String& name) { flushUndo(); undoManager.beginNewTransaction (name); }
+
+    /** Band solo ("audition"): plays only the region a band works on, through
+        a band-pass at the band's frequency. -1 = no solo. Not automatable and
+        not saved; it is a listening aid set from the editor. */
+    void setSoloBand (int bandIndex) noexcept { soloBand.store (bandIndex); }
+    int getSoloBand() const noexcept { return soloBand.load(); }
+
+    /** Current sample rate, or 48 kHz before the host has prepared us (used by
+        the editor to draw response curves). */
+    double getCurrentSampleRateOrDefault() const noexcept
+    {
+        const double sr = getSampleRate();
+        return sr > 0.0 ? sr : 48000.0;
+    }
 
 private:
     /** Shared double-precision path. */
@@ -58,6 +80,7 @@ private:
 
     struct BandParams
     {
+        std::atomic<float>* used = nullptr;
         std::atomic<float>* on = nullptr;
         std::atomic<float>* type = nullptr;
         std::atomic<float>* freq = nullptr;
@@ -67,6 +90,9 @@ private:
         std::atomic<float>* mode = nullptr;
     };
 
+    void updateSolo() noexcept;
+
+    juce::UndoManager undoManager { 30000, 100 };
     juce::AudioProcessorValueTreeState apvts;
     std::atomic<float>* inputGainDb  = nullptr;
     std::atomic<float>* outputGainDb = nullptr;
@@ -75,6 +101,9 @@ private:
 
     peq::FilterEngine engine;
     bool engineIdle = false;   // true while fully bypassed (EQ not running)
+
+    std::atomic<int> soloBand { -1 };
+    peq::EQBand soloFilter;
 
     juce::SmoothedValue<double, juce::ValueSmoothingTypes::Multiplicative> inGain { 1.0 }, outGain { 1.0 };
     juce::SmoothedValue<double, juce::ValueSmoothingTypes::Linear> wet { 1.0 };

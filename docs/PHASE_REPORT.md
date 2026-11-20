@@ -1,3 +1,73 @@
+# Phase report: Phase 4 (2026-11-20)
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP, engine and graph-maths tests, GCC 13 (Linux) | **30 tests, 191,708 checks, 0 failures** |
+| Headless GUI test (real processor + editor, Linux, Xvfb) | **All 24 checks pass** (see below) |
+| Visual Studio 2022 build, tests, pluginval (GitHub Actions) | See the pull request's checks |
+| Cubase | Phase 1-2 build confirmed loading and working by Joe. **Phase 4 not yet tried in Cubase.** |
+
+## Phase 4: interactive graphical interface (done)
+
+![Phase 4](screenshot-phase4.png)
+
+- **EQ graph**: log frequency scale (10 Hz - 30 kHz), dB scale (choose +/-6,
+  12, 18 or 30 dB), each band's curve filled in its own colour, the combined
+  curve in white, the region above Nyquist shaded.
+- **Nodes**: one numbered, coloured dot per band. Bypassed bands are grey and
+  dashed; left/right/mid/side bands show an L/R/M/S tag and a dashed curve.
+- **Mouse**: click to add a band (low cut near 20 Hz, high cut near 20 kHz,
+  bell elsewhere); drag to move (horizontal = frequency, vertical = gain,
+  Shift = fine); wheel = Q; double-click = reset gain; right-click menu = type,
+  slope, channels, enable, solo, reset, delete. Delete key removes the
+  selected band.
+- **Readout** next to the hovered/selected node: band, type, frequency, gain,
+  Q, slope.
+- **Band panel**: type, slope, channels, frequency/gain/Q knobs, On, Solo,
+  Delete for the selected band. Controls that do nothing for a type (gain on
+  a cut, slope on a bell) are greyed out.
+- **Top bar**: Undo / Redo (also Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z), display range,
+  input and output gain, bypass.
+- **Solo** (listen to one band): plays the signal through a band-pass at the
+  band's frequency (with its Q for bells/notches/band-passes, a wide Q for
+  shelves and cuts). It is a listening aid: not automatable, not saved.
+- **Resizable** window (760 x 460 up to 3000 x 2000); size and display range
+  are saved with the project. Layout adapts when narrow.
+- **Undo/redo** covers every edit from the graph, the panel and the top bar.
+
+### Parameter change
+
+Each band gained a **"Used"** parameter (`bNN_used`), separate from
+**"Enabled"** (`bNN_on`). "Used" means the band exists in the graph; "Enabled"
+is its bypass switch, so a band can be bypassed and still shown. A band is
+heard only when both are set. All bands start unused, so a new instance is
+transparent. Existing IDs are unchanged.
+
+### GUI test (Tests/GuiTests.cpp)
+
+Builds the real processor and editor, drives the graph through the same
+functions the mouse uses, and checks the parameters: click adds a bell at the
+clicked frequency and gain; clicks at 20 Hz / 19 kHz add a low / high cut;
+wheel changes Q; double-click resets gain; undo and redo of a reset and of a
+delete; solo on/off; 200 blocks of audio stay finite; saved state restores
+frequency, Q and a bypassed band. It also saves screenshots (normal, solo,
+smallest window size). It needs a display, so it runs locally, not in CI.
+
+### Honest notes
+
+- The combined (white) curve adds all active bands as if they all worked on
+  the same signal. For left/right/mid/side bands that is only an approximation
+  of what each channel gets; those bands are marked with a tag and dashed line.
+- The mouse handlers themselves were exercised through the same code paths
+  the GUI test calls, not by simulated mouse clicks; real-mouse feel needs
+  trying in Cubase.
+- Solo auditions both channels, even for a left/right/mid/side band.
+- Spectrum analyser comes in Phase 5.
+
+---
+
 # Phase report: Phase 3 (2026-11-20)
 
 ## What was verified, and where

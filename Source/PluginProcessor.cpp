@@ -12,7 +12,7 @@ ParaEQAudioProcessor::ParaEQAudioProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "ParaEQState", peq::params::createLayout())
+      apvts (*this, &undoManager, "ParaEQState", peq::params::createLayout())
 {
     inputGainDb  = apvts.getRawParameterValue (peq::params::inputGain);
     outputGainDb = apvts.getRawParameterValue (peq::params::outputGain);
@@ -29,6 +29,7 @@ ParaEQAudioProcessor::ParaEQAudioProcessor()
             return v;
         };
         auto& bp = bandParams[(size_t) b];
+        bp.used  = get (BandField::used);
         bp.on    = get (BandField::on);
         bp.type  = get (BandField::type);
         bp.freq  = get (BandField::freq);
@@ -47,7 +48,7 @@ void ParaEQAudioProcessor::updateEngine() noexcept
     {
         const auto& bp = bandParams[(size_t) b];
         peq::BandParameters p;
-        p.enabled     = bp.on->load() >= 0.5f;
+        p.enabled     = bp.used->load() >= 0.5f && bp.on->load() >= 0.5f;
         p.type        = (peq::FilterType) juce::jlimit (0, (int) peq::FilterType::NumTypes - 1,
                                                         juce::roundToInt (bp.type->load()));
         p.frequencyHz = (double) bp.freq->load();
@@ -58,6 +59,33 @@ void ParaEQAudioProcessor::updateEngine() noexcept
                                                            juce::roundToInt (bp.mode->load()));
         engine.setBand (b, p, mode);
     }
+}
+
+void ParaEQAudioProcessor::updateSolo() noexcept
+{
+    // Audition filter: a band-pass centred on the soloed band. For bells,
+    // notches and band-passes it uses the band's own Q, so you hear exactly the
+    // region being changed; for shelves and cuts a fixed, fairly wide Q.
+    peq::BandParameters p;
+    p.type = peq::FilterType::BandPass;
+    p.slopeDbPerOct = 12;
+    p.enabled = false;
+
+    const int solo = soloBand.load();
+    if (solo >= 0 && solo < peq::FilterEngine::numBands)
+    {
+        const auto& bp = bandParams[(size_t) solo];
+        if (bp.used->load() >= 0.5f)
+        {
+            const auto type = (peq::FilterType) juce::roundToInt (bp.type->load());
+            const bool narrow = type == peq::FilterType::Bell || type == peq::FilterType::Notch
+                             || type == peq::FilterType::BandPass;
+            p.frequencyHz = (double) bp.freq->load();
+            p.q = narrow ? juce::jlimit (0.3, 40.0, (double) bp.q->load()) : 0.5;
+            p.enabled = true;
+        }
+    }
+    soloFilter.setTarget (p);
 }
 
 bool ParaEQAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -89,6 +117,9 @@ void ParaEQAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     engine.prepare (sampleRate);
     engine.snapToTargets();
     engineIdle = false;
+
+    updateSolo();
+    soloFilter.prepare (sampleRate);
 }
 
 void ParaEQAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -188,8 +219,10 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
             data[ch][i] *= g;
     }
 
-    // 2. The EQ bands.
+    // 2. The EQ bands (then the solo/audition filter, normally off).
     engine.process (data, numChannels, numSamples);
+    updateSolo();
+    soloFilter.process (data, numChannels, numSamples);
 
     // 3. Output gain and the bypass crossfade.
     for (int i = 0; i < numSamples; ++i)

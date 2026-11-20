@@ -1,0 +1,122 @@
+#pragma once
+
+#include "BandParams.h"
+
+#include <juce_gui_basics/juce_gui_basics.h>
+
+#include <functional>
+#include <vector>
+
+class ParaEQAudioProcessor;
+
+namespace peq::gui
+{
+
+/** The interactive frequency-response graph.
+
+    Draws a log-frequency / dB grid, each band's own curve (filled, in its
+    colour), the combined curve and a draggable node per band.
+
+    Mouse
+    - Click empty space: add a band there (then keep dragging to place it).
+    - Drag a node: horizontal = frequency, vertical = gain. Shift = fine.
+    - Mouse wheel over a node (or anywhere, for the selected band): Q.
+    - Double-click a node: reset its gain to 0 dB.
+    - Right-click a node: type, slope, channels, enable, solo, delete.
+
+    Every change goes through the host parameters with proper gestures, so it
+    is automatable and undoable.
+
+    The combined curve adds up all active bands as if they ran on the same
+    signal. Left/right/mid/side bands only act on part of the signal, so
+    their nodes carry a letter tag and their own curves are drawn dashed.
+*/
+class EQGraph final : public juce::Component,
+                      private juce::Timer
+{
+public:
+    EQGraph (ParaEQAudioProcessor& processor, AllBands& bands);
+    ~EQGraph() override;
+
+    /** -1 = none. */
+    int getSelectedBand() const noexcept { return selected; }
+    void setSelectedBand (int band);
+    std::function<void (int)> onSelectionChanged;
+
+    /** Vertical scale: +/- this many dB (6, 12, 18 or 30). */
+    void setDisplayRange (double rangeDb);
+    double getDisplayRange() const noexcept { return rangeDb; }
+
+    // Actions used by the mouse handlers; public so they can be tested.
+    /** Adds a band at a point in the plot; returns its index or -1 if all
+        bands are in use. */
+    int addBandAt (juce::Point<float> plotPosition);
+    void deleteBand (int band);
+    void resetGain (int band);
+    void adjustQ (int band, double wheelSteps);
+    void toggleSolo (int band);
+
+    /** Where a band's node is drawn, in this component's coordinates. */
+    juce::Point<float> nodePosition (int band) const;
+
+    juce::Rectangle<float> plotArea() const;
+
+    void paint (juce::Graphics&) override;
+    void resized() override;
+
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+
+private:
+    void timerCallback() override;
+
+    /** Re-reads the parameters; recomputes the curves only if anything moved. */
+    bool refreshFromParameters (bool force);
+    void recomputeCurves();
+
+    int bandAt (juce::Point<float> position) const;
+    void showBandMenu (int band);
+    void beginDrag (int band, juce::Point<float> mousePos);
+    void endDrag();
+
+    void drawGrid (juce::Graphics&, juce::Rectangle<float> plot) const;
+    void drawCurves (juce::Graphics&, juce::Rectangle<float> plot) const;
+    void drawNodes (juce::Graphics&) const;
+    void drawReadout (juce::Graphics&, int band) const;
+
+    float xForFreq (double hz) const;
+    float yForDb (double db) const;
+
+    ParaEQAudioProcessor& processor;
+    AllBands& bands;
+
+    int selected = -1;
+    int hovered = -1;
+    double rangeDb = 18.0;
+
+    // Snapshot of the parameter values the curves were computed from.
+    std::vector<float> lastValues;
+    double lastSampleRate = 0.0;
+
+    // Curves in dB, one value per pixel column of the plot.
+    std::vector<std::vector<float>> bandCurves;
+    std::vector<float> totalCurve;
+    int curveWidth = 0;
+    double curveSampleRate = 48000.0;
+
+    // Drag state.
+    int dragBand = -1;
+    juce::Point<float> dragStartMouse;
+    double dragStartLogFreq = 0.0, dragStartGain = 0.0;
+    bool dragMovesGain = false;
+    juce::uint32 lastWheelTime = 0;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EQGraph)
+};
+
+} // namespace peq::gui
