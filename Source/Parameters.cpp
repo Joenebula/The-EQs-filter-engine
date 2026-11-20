@@ -77,6 +77,7 @@ AudioProcessorValueTreeState::ParameterLayout createLayout()
                                                        dbAttributes));
 
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { bypass, version }, "Bypass", false));
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { analogMatch, version }, "Analog Match", true));
 
     // Order must match peq::FilterType and peq::ChannelMode.
     const StringArray typeNames { "Bell", "Low Shelf", "High Shelf", "Low-pass", "High-pass", "Notch", "Band-pass" };

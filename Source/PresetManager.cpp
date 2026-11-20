@@ -11,7 +11,8 @@ namespace
 
     bool isSoundParameter (const juce::String& id)
     {
-        return id != peq::params::bypass;
+        // Bypass and the filter design method are not part of a preset.
+        return id != peq::params::bypass && id != peq::params::analogMatch;
     }
 
     //==========================================================================

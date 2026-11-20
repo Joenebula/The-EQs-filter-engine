@@ -99,6 +99,7 @@ private:
 
     BandParameters requested {};  // as set by the user (unclamped)
     BandParameters target {};     // clamped for the current sample rate
+    bool activeMatched = false;   // design method the coefficients currently use
     FilterType activeType = FilterType::Bell;
     int activeSlope = 12;
 

@@ -136,6 +136,7 @@ private:
     float yForDb (double db) const;
 
     ParaEQAudioProcessor& processor;
+    juce::RangedAudioParameter* analogMatchParam = nullptr;
     AllBands& bands;
 
     int selected = -1;

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(ParametricEQ VERSION 1.0.0 LANGUAGES C CXX)
+project(ParametricEQ VERSION 1.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -56,6 +56,7 @@ if(PEQ_BUILD_TESTS)
         Tests/GraphTests.cpp
         Tests/AnalyserTests.cpp
         Tests/DynamicsTests.cpp
+        Tests/MatchedTests.cpp
     )
     find_package(Threads REQUIRED)
     target_link_libraries(peq_tests PRIVATE peq_dsp Threads::Threads)

@@ -180,8 +180,8 @@ int main()
     {
         auto p = makeProcessor();
         const auto& params = p->getParameters();
-        const int expected = 3 + peq::params::numBands * 13;
-        check (params.size() == expected, "parameter count = 3 global + 24 bands x 13");
+        const int expected = 4 + peq::params::numBands * 13;
+        check (params.size() == expected, "parameter count = 4 global + 24 bands x 13");
 
         bool allAutomatable = true, idsOk = true, uniqueIds = true;
         juce::StringArray ids;
@@ -246,7 +246,7 @@ int main()
             if (! near (getValue (pa), getValue (pb), 1e-3 * std::max (1.0, std::abs ((double) getValue (pa)))))
                 ++mismatches;
         }
-        check (mismatches == 0, "save then load restores all 315 parameters");
+        check (mismatches == 0, "save then load restores all 316 parameters");
         check (juce::exactlyEqual ((double) b->getState().state.getProperty ("displayRange"), 12.0), "editor settings saved with the state");
 
         auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
@@ -292,6 +292,51 @@ int main()
         check (getValue (bandParam (*b, 0, BandField::dyn)) < 0.5f, "old project: dynamics off (default)");
         check (near (getValue (bandParam (*b, 0, BandField::range)), -6.0, 0.01), "old project: new parameters at defaults");
         check (near (sineGainDb (*b, 48000.0, 1000.0, 512), 4.5, 0.15), "old project sounds as saved (+4.5 dB at 1 kHz)");
+    }
+
+    // Analog-matched filters (1.1): on for new instances, off for projects
+    // saved before it existed, and it changes what you hear near the top.
+    {
+        auto fresh = makeProcessor();
+        check (getValue (param (*fresh, peq::params::analogMatch)) >= 0.5f, "analog match: on for a new instance");
+
+        // A 1.0 project (state version 2, no analog_match parameter).
+        auto a = makeProcessor();
+        setupBell (*a, 4.5f);
+        juce::MemoryBlock saved;
+        a->getStateInformation (saved);
+        auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
+        xml->setAttribute ("stateVersion", 2);
+        for (auto* child = xml->getFirstChildElement(); child != nullptr;)
+        {
+            auto* next = child->getNextElement();
+            if (child->getStringAttribute ("id") == peq::params::analogMatch)
+                xml->removeChildElement (child, true);
+            child = next;
+        }
+        juce::MemoryBlock v2;
+        juce::AudioProcessor::copyXmlToBinary (*xml, v2);
+        auto b = makeProcessor();
+        b->setStateInformation (v2.getData(), (int) v2.getSize());
+        check (getValue (param (*b, peq::params::analogMatch)) < 0.5f, "analog match: off when loading a 1.0 project (same sound)");
+
+        // A current project keeps whatever was saved.
+        auto c = makeProcessor();
+        c->setStateInformation (saved.getData(), (int) saved.getSize());
+        check (getValue (param (*c, peq::params::analogMatch)) >= 0.5f, "analog match: a current project keeps it on");
+
+        // What you hear: a 15 kHz bell (+6 dB, Q 1) at 44.1 kHz, measured at 10 kHz.
+        auto p = makeProcessor (44100.0, 512);
+        setupBell (*p, 6.0f);
+        setValue (bandParam (*p, 0, BandField::freq), 15000.0f);
+        const double analog = 10.0 * std::log10 (peq::FilterDesign::analogPrototype (peq::FilterType::Bell, 2, 6.0, 1.0)
+                                                     .magnitudeSquared (10000.0 / 15000.0));
+        const double on = sineGainDb (*p, 44100.0, 10000.0, 512);
+        setValue (param (*p, peq::params::analogMatch), 0.0f);
+        const double off = sineGainDb (*p, 44100.0, 10000.0, 512);
+        std::printf ("       15 kHz bell at 10 kHz: analogue %.2f dB, matched %.2f dB, classic %.2f dB\n", analog, on, off);
+        check (near (on, analog, 0.75) && std::abs (on - analog) < 0.5 * std::abs (off - analog),
+               "analog match: a 15 kHz bell keeps its analogue shape (classic one is squeezed)");
     }
 
     // Corrupt or foreign data is ignored.
@@ -611,6 +656,10 @@ int main()
         setValue (param (*p, peq::params::bypass), 1.0f);
         pm.loadFactory (0);
         check (getValue (param (*p, peq::params::bypass)) >= 0.5f, "loading a preset leaves bypass alone");
+        setValue (param (*p, peq::params::analogMatch), 0.0f);
+        pm.loadFactory (1);
+        check (getValue (param (*p, peq::params::analogMatch)) < 0.5f, "loading a preset leaves analog match alone");
+        setValue (param (*p, peq::params::analogMatch), 1.0f);
         setValue (param (*p, peq::params::bypass), 0.0f);
 
         // Preset name travels with the project; not shown as modified after load.

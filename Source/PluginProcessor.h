@@ -46,7 +46,7 @@ public:
 
     /** Saved state: the parameter tree as XML plus a "stateVersion" number
         (absent = 1, Phases 1-5; 2 = Phase 6 onwards, with dynamic EQ). */
-    static constexpr int currentStateVersion = 2;
+    static constexpr int currentStateVersion = 3;
     static constexpr const char* stateVersionId = "stateVersion";
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -141,6 +141,7 @@ private:
     std::atomic<float>* inputGainDb  = nullptr;
     std::atomic<float>* outputGainDb = nullptr;
     juce::AudioParameterBool* bypassParam = nullptr;
+    std::atomic<float>* analogMatch = nullptr;
     std::array<BandParams, peq::FilterEngine::numBands> bandParams {};
 
     peq::FilterEngine engine;

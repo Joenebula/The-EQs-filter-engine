@@ -5,7 +5,7 @@ Cubase. It has a large interactive EQ graph, a real-time spectrum analyser,
 dynamic EQ on any bell or shelf, left/right/mid/side processing per band,
 presets, A/B compare and full automation.
 
-Version 1.0 · Vendor "Home Studio" · Personal use.
+Version 1.1 · Vendor "Home Studio" · Personal use.
 
 ---
 
@@ -57,12 +57,24 @@ From left to right along the top:
 | **A** / **B** | Switches between two complete settings to compare them. |
 | **+/- 18 dB** | Vertical scale of the graph (6, 12, 18 or 30 dB). Display only. |
 | **Analyser** | Spectrum analyser settings. |
+| **Analog** | Analog-matched curves (see below). On by default. |
 | **IN / OUT** | Input and output gain, -24 to +24 dB. Double-click to reset. |
 | Meter | Output peak level. Red light = went over 0 dBFS; click to reset. |
 | **Bypass** | Turns the whole EQ off (click-free). |
 
 The window can be resized from its bottom-right corner. Its size is saved with
 the project.
+
+### Analog-matched curves
+
+A normal digital EQ "squeezes" bands near the top of the spectrum: at 44.1
+or 48 kHz a wide bell at 12 kHz comes out narrower than it should, and a high
+shelf can't keep rising past about 18 kHz. With **Analog** on (the default),
+every band keeps the shape an analogue EQ would have, right up to 20 kHz. There
+is no added latency and no extra CPU worth measuring.
+
+Turn it off for the classic digital curves. Projects made with ParaEQ 1.0 open
+with it off, so they sound exactly as they did. It is not part of a preset.
 
 ---
 
@@ -264,5 +276,8 @@ is in the preset menu. Both settings are saved with the project.
   before a band reacts. The ratio (1 dB per 2 dB) and knee are fixed.
 - No external sidechain input.
 - The combined curve is exact only for Stereo bands.
+- Analog-matched curves are very close to analogue but not perfect for
+  bands centred right next to the top of the spectrum (about 1 dB on an
+  everyday bell or shelf, more for extreme settings).
 - The installer and plugin are not code-signed, so Windows shows a warning
   the first time.

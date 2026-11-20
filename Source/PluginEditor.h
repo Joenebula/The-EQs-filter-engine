@@ -56,6 +56,7 @@ private:
     peq::gui::BandPanel bandPanel;
 
     juce::TextButton undoButton { "Undo" }, redoButton { "Redo" }, bypassButton { "Bypass" };
+    juce::TextButton analogButton { "Analog" };
     juce::TextButton analyserButton { "Analyser" };
     juce::TextButton presetButton, prevPresetButton { "<" }, nextPresetButton { ">" }, abButton { "A" };
     std::unique_ptr<juce::FileChooser> fileChooser;
@@ -65,7 +66,7 @@ private:
     peq::gui::OutputMeter outputMeter;
     juce::TooltipWindow tooltips { this, 600 };
     std::unique_ptr<SliderAttachment> inGainAtt, outGainAtt;
-    std::unique_ptr<ButtonAttachment> bypassAtt;
+    std::unique_ptr<ButtonAttachment> bypassAtt, analogAtt;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParaEQAudioProcessorEditor)
 };

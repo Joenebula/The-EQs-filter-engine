@@ -165,6 +165,7 @@ void EQBand::setTarget (const BandParameters& newTarget) noexcept
 
 void EQBand::snapToTarget() noexcept
 {
+    activeMatched = target.analogMatched;
     activeType  = target.type;
     activeSlope = target.slopeDbPerOct;
     structurePending = false;
@@ -181,6 +182,7 @@ void EQBand::snapToTarget() noexcept
 
 void EQBand::applyStructure() noexcept
 {
+    activeMatched = target.analogMatched;
     activeType  = target.type;
     activeSlope = target.slopeDbPerOct;
     structurePending = false;
@@ -207,6 +209,7 @@ BandParameters EQBand::currentParameters() const noexcept
     p.gainDb        = std::clamp (gainDb.current + dynOffsetDb, limits::minGainDb, limits::maxGainDb);
     p.q             = std::exp (logQ.current);
     p.enabled       = target.enabled;
+    p.analogMatched = activeMatched;
     return p;
 }
 
@@ -280,8 +283,9 @@ void EQBand::processBlockSegment (double* const* channels, int firstChannel, int
         // back on starts from the right settings rather than gliding from stale ones.
         if (mix <= 0.0 && mixTarget <= 0.0 && ! structurePending)
         {
-            if (! logFreq.settled() || ! gainDb.settled() || ! logQ.settled())
+            if (! logFreq.settled() || ! gainDb.settled() || ! logQ.settled() || activeMatched != target.analogMatched)
             {
+                activeMatched   = target.analogMatched;
                 logFreq.current = logFreq.target;
                 gainDb.current  = gainDb.target;
                 logQ.current    = logQ.target;
@@ -314,7 +318,9 @@ void EQBand::processBlockSegment (double* const* channels, int firstChannel, int
         const CascadeCoefficients startCoeffs = coeffs;
         const bool dynamicChanged = updateDynamics (channels, firstChannel, numChannels, pos, len);
         bool ramping = advanceParameters (len);
-        if (dynamicChanged)
+        const bool methodChanged = activeMatched != target.analogMatched;
+        activeMatched = target.analogMatched;
+        if (dynamicChanged || methodChanged)
         {
             if (! ramping)
                 updateCoefficients();

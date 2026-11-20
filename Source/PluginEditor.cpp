@@ -43,6 +43,11 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
     redoButton.setTooltip ("Redo (Ctrl+Y)");
     bypassButton.setClickingTogglesState (true);
     bypassButton.setColour (juce::TextButton::buttonOnColourId, peq::theme::warning);
+    analogButton.setClickingTogglesState (true);
+    analogButton.setColour (juce::TextButton::buttonOnColourId, peq::theme::accent);
+    analogButton.setTooltip ("Analog-matched curves: on, bands keep their analogue shape right up to 20 kHz "
+                             "(no squeezing near the top at 44.1/48 kHz). Off: classic digital curves, "
+                             "as in ParaEQ 1.0. Zero latency either way.");
     analyserButton.onClick = [this] { showAnalyserMenu(); };
     analyserButton.setTooltip ("Spectrum analyser settings");
     presetButton.onClick = [this] { showPresetMenu(); };
@@ -53,7 +58,7 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
     nextPresetButton.setTooltip ("Next preset");
     abButton.onClick = [this] { processor.switchAB(); updatePresetBar(); };
     abButton.setTooltip ("A/B compare: switch between two settings (the preset menu can copy one to the other)");
-    for (auto* b : { &undoButton, &redoButton, &bypassButton, &analyserButton,
+    for (auto* b : { &undoButton, &redoButton, &bypassButton, &analogButton, &analyserButton,
                      &presetButton, &prevPresetButton, &nextPresetButton, &abButton })
         addAndMakeVisible (*b);
     updatePresetBar();
@@ -85,6 +90,7 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
     inGainAtt  = std::make_unique<SliderAttachment> (state, peq::params::inputGain, inGainKnob);
     outGainAtt = std::make_unique<SliderAttachment> (state, peq::params::outputGain, outGainKnob);
     bypassAtt  = std::make_unique<ButtonAttachment> (state, peq::params::bypass, bypassButton);
+    analogAtt  = std::make_unique<ButtonAttachment> (state, peq::params::analogMatch, analogButton);
 
     for (auto [label, text] : { std::pair { &inGainLabel, "IN" }, std::pair { &outGainLabel, "OUT" }, std::pair { &rangeLabel, "RANGE" } })
     {
@@ -500,6 +506,8 @@ void ParaEQAudioProcessorEditor::resized()
     bar.removeFromLeft (compact ? 8 : 14);
 
     rangeLabel.setVisible (false);
+    analogButton.setBounds (bar.removeFromRight (compact ? 56 : 64));
+    bar.removeFromRight (compact ? 4 : 8);
     analyserButton.setBounds (bar.removeFromRight (compact ? 72 : 84));
     bar.removeFromRight (compact ? 4 : 8);
     rangeBox.setBounds (bar.removeFromRight (compact ? 92 : 104));

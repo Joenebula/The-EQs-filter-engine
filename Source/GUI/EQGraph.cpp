@@ -29,6 +29,7 @@ namespace
 EQGraph::EQGraph (ParaEQAudioProcessor& p, AllBands& b)
     : processor (p), bands (b)
 {
+    analogMatchParam = processor.getState().getParameter (params::analogMatch);
     setOpaque (true);
     setWantsKeyboardFocus (false);
     bandCurves.resize ((size_t) FilterEngine::numBands);
@@ -338,6 +339,8 @@ bool EQGraph::refreshFromParameters (bool force)
         const auto& r = bands[(size_t) b];
         for (auto* p : { r.used, r.on, r.type, r.freq, r.gain, r.q, r.slope, r.mode, r.dyn, r.range })
             values.push_back (p->getValue());
+        if (b == 0)
+            values.push_back (analogMatchParam != nullptr ? analogMatchParam->getValue() : 0.0f);
 
         // Live dynamic gain, in 0.1 dB steps so the curves are only redrawn
         // when the change is visible.
@@ -370,7 +373,9 @@ void EQGraph::recomputeCurves()
     auto compute = [this] (const BandParameters& params, std::vector<float>& out)
     {
         CascadeCoefficients c;
-        FilterDesign::design (params, curveSampleRate, c);
+        auto p = params;
+        p.analogMatched = analogMatchParam != nullptr && analogMatchParam->getValue() >= 0.5f;
+        FilterDesign::design (p, curveSampleRate, c);
         out.resize ((size_t) curveWidth);
         for (int x = 0; x < curveWidth; ++x)
         {
