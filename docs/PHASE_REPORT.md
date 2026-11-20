@@ -5,7 +5,7 @@
 | Check | Result |
 |---|---|
 | DSP, engine and graph-maths tests, GCC 13 (Linux) | **30 tests, 191,708 checks, 0 failures** |
-| Headless GUI test (real processor + editor, Linux, Xvfb) | **All 24 checks pass** (see below) |
+| Headless GUI test (real processor + editor, Linux, Xvfb) | **All 21 checks pass** (see below) |
 | Visual Studio 2022 build, tests, pluginval (GitHub Actions) | See the pull request's checks |
 | Cubase | Phase 1-2 build confirmed loading and working by Joe. **Phase 4 not yet tried in Cubase.** |
 
