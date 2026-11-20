@@ -8,6 +8,7 @@
 
 #include "../Source/PluginProcessor.h"
 #include "../Source/Parameters.h"
+#include "../Source/GUI/BandParams.h"
 
 #include <atomic>
 #include <cmath>
@@ -489,6 +490,160 @@ int main()
         for (int k = 0; k < numInstances; ++k)
             ok = ok && near (results[(size_t) k], -9.0 + 6.0 * k, 0.15);
         check (ok, "4 instances processing at once stay independent");
+    }
+
+    // ---------------------------------------------------------------- presets
+    {
+        auto p = makeProcessor();
+        auto& pm = p->getPresets();
+        const auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                .getChildFile ("ParaEQ-preset-test-" + juce::String (juce::Random::getSystemRandom().nextInt (1 << 30)));
+        folder.deleteRecursively();
+        pm.setUserFolder (folder);
+
+        const auto factory = pm.getFactoryNames();
+        check (factory.size() >= 12, "at least 12 factory presets");
+        bool allLoad = true;
+        for (int i = 0; i < factory.size(); ++i)
+            allLoad = allLoad && pm.loadFactory (i) && pm.getCurrentName() == factory[i] && ! pm.isModified();
+        check (allLoad, "every factory preset loads and shows its name");
+
+        auto usedCount = [&p]
+        {
+            int n = 0;
+            for (int b = 0; b < peq::params::numBands; ++b)
+                n += getValue (bandParam (*p, b, BandField::used)) >= 0.5f ? 1 : 0;
+            return n;
+        };
+        pm.loadFactory (factory.indexOf ("Default (flat)"));
+        check (usedCount() == 0, "Default (flat) clears all bands");
+        pm.loadFactory (factory.indexOf ("Vocal - de-ess (dynamic)"));
+        check (usedCount() == 2 && getValue (bandParam (*p, 1, BandField::dyn)) >= 0.5f
+                   && near (getValue (bandParam (*p, 1, BandField::freq)), 6500.0, 1.0),
+               "de-ess preset sets a dynamic band at 6.5 kHz");
+
+        // Undo takes a preset load back in one step.
+        pm.loadFactory (factory.indexOf ("Default (flat)"));
+        setupBell (*p, 5.0f);
+        p->flushUndo();
+        p->getUndoManager().beginNewTransaction();
+        pm.loadFactory (factory.indexOf ("Air boost"));
+        p->flushUndo();
+        p->getUndoManager().undo();
+        check (near (getValue (bandParam (*p, 0, BandField::gain)), 5.0, 0.01)
+                   && juce::roundToInt (getValue (bandParam (*p, 0, BandField::type))) == 0,
+               "undo after loading a preset restores the previous settings");
+
+        // Save, change, reload.
+        setupBell (*p, 4.0f);
+        check (pm.saveUser ("My vocal"), "save user preset");
+        check (pm.fileForUserPreset ("My vocal").existsAsFile() && pm.getCurrentName() == "My vocal" && ! pm.isModified(),
+               "preset file written, name shown, not modified");
+        setValue (bandParam (*p, 0, BandField::gain), -7.0f);
+        check (pm.isModified(), "changing a knob marks the preset modified");
+        check (pm.loadUser ("My vocal") && near (getValue (bandParam (*p, 0, BandField::gain)), 4.0, 0.01),
+               "loading the user preset restores it");
+
+        check (pm.renameUser ("My vocal", "Lead vocal") && ! pm.userPresetExists ("My vocal")
+                   && pm.userPresetExists ("Lead vocal") && pm.getCurrentName() == "Lead vocal",
+               "rename user preset");
+        pm.saveUser ("Other");
+        check (! pm.renameUser ("Lead vocal", "Other"), "rename refuses to overwrite another preset");
+        check (pm.getUserNames() == juce::StringArray ({ "Lead vocal", "Other" }), "user preset list is sorted");
+
+        const auto exported = folder.getChildFile ("export-test.paraeq");
+        pm.loadUser ("Lead vocal");
+        check (pm.exportTo (exported) && exported.existsAsFile(), "export preset to a file");
+        setValue (bandParam (*p, 0, BandField::gain), 0.0f);
+        const auto imported = pm.importFrom (exported);
+        check (imported == "Lead vocal (2)" && near (getValue (bandParam (*p, 0, BandField::gain)), 4.0, 0.01),
+               "import copies into my presets (renamed if taken) and loads it");
+
+        const auto junkFile = folder.getChildFile ("junk.paraeq");
+        junkFile.replaceWithText ("not a preset");
+        check (pm.importFrom (junkFile).isEmpty(), "importing a non-preset file is refused");
+
+        check (pm.deleteUser ("Other") && ! pm.userPresetExists ("Other"), "delete user preset");
+
+        // A preset written before dynamics existed: missing values get defaults.
+        auto xml = pm.createPresetXml ("Old");
+        for (auto* e = xml->getFirstChildElement(); e != nullptr;)
+        {
+            auto* next = e->getNextElement();
+            if (e->getStringAttribute ("id").endsWith ("_dyn"))
+                xml->removeChildElement (e, true);
+            e = next;
+        }
+        const auto oldFile = folder.getChildFile ("Old.paraeq");
+        xml->writeTo (oldFile);
+        setValue (bandParam (*p, 0, BandField::dyn), 1.0f);
+        check (pm.loadFile (oldFile) && getValue (bandParam (*p, 0, BandField::dyn)) < 0.5f,
+               "older preset without dynamics loads with dynamics off");
+
+        // Bypass is not part of a preset.
+        setValue (param (*p, peq::params::bypass), 1.0f);
+        pm.loadFactory (0);
+        check (getValue (param (*p, peq::params::bypass)) >= 0.5f, "loading a preset leaves bypass alone");
+        setValue (param (*p, peq::params::bypass), 0.0f);
+
+        // Preset name travels with the project; not shown as modified after load.
+        pm.loadUser ("Lead vocal");
+        juce::MemoryBlock saved;
+        p->getStateInformation (saved);
+        auto q = makeProcessor();
+        q->setStateInformation (saved.getData(), (int) saved.getSize());
+        check (q->getPresets().getCurrentName() == "Lead vocal" && ! q->getPresets().isModified(),
+               "project remembers the preset name, not marked modified");
+
+        folder.deleteRecursively();
+    }
+
+    // ---------------------------------------------------------------- A/B
+    {
+        auto p = makeProcessor();
+        setupBell (*p, 3.0f);
+        check (p->getActiveSlot() == 0, "starts on A");
+        p->switchAB();
+        check (p->getActiveSlot() == 1 && near (getValue (bandParam (*p, 0, BandField::gain)), 3.0, 0.01),
+               "first switch to B starts as a copy of A");
+        setValue (bandParam (*p, 0, BandField::gain), -5.0f);
+        p->switchAB();
+        check (p->getActiveSlot() == 0 && near (getValue (bandParam (*p, 0, BandField::gain)), 3.0, 0.01), "back to A recalls A");
+        p->switchAB();
+        check (near (getValue (bandParam (*p, 0, BandField::gain)), -5.0, 0.01), "B recalls B");
+        check (near (sineGainDb (*p, 48000.0, 1000.0, 512), -5.0, 0.15), "B is what you hear");
+
+        juce::MemoryBlock saved;
+        p->getStateInformation (saved);
+        auto q = makeProcessor();
+        q->setStateInformation (saved.getData(), (int) saved.getSize());
+        check (q->getActiveSlot() == 1 && near (getValue (bandParam (*q, 0, BandField::gain)), -5.0, 0.01), "project restores the active slot");
+        q->switchAB();
+        check (near (getValue (bandParam (*q, 0, BandField::gain)), 3.0, 0.01), "project restores the other slot too");
+
+        q->copyActiveToOther();   // A -> B
+        setValue (bandParam (*q, 0, BandField::gain), 9.0f);
+        q->switchAB();
+        check (near (getValue (bandParam (*q, 0, BandField::gain)), 3.0, 0.01), "copy A to B copies the settings");
+    }
+
+    // ---------------------------------------------------------------- copy/paste band
+    {
+        auto p = makeProcessor();
+        auto refs = peq::gui::makeBandRefs (p->getState());
+        setupBell (*p, 7.0f);
+        setValue (bandParam (*p, 0, BandField::mode), 4.0f);    // Side
+        setValue (bandParam (*p, 0, BandField::dyn), 1.0f);
+        setValue (bandParam (*p, 0, BandField::thr), -33.0f);
+        const auto text = peq::gui::bandToClipboardText (refs[0]);
+        check (peq::gui::isBandClipboardText (text) && ! peq::gui::isBandClipboardText ("hello"), "copied band is recognised");
+        check (peq::gui::pasteBandFromClipboardText (refs[9], text), "paste band");
+        bool same = true;
+        for (auto f : { BandField::used, BandField::on, BandField::type, BandField::freq, BandField::gain, BandField::q,
+                        BandField::slope, BandField::mode, BandField::dyn, BandField::thr, BandField::range,
+                        BandField::att, BandField::rel })
+            same = same && near (getValue (bandParam (*p, 0, f)), getValue (bandParam (*p, 9, f)), 1e-3);
+        check (same, "pasted band matches the copied one in every setting");
     }
 
     std::printf ("\n%d checks, %d failures: %s\n", checks, failures, failures == 0 ? "ALL PLUGIN CHECKS PASSED" : "PLUGIN CHECKS FAILED");

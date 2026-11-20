@@ -312,10 +312,38 @@ juce::AudioProcessorEditor* ParaEQAudioProcessor::createEditor()
     return new ParaEQAudioProcessorEditor (*this);
 }
 
+namespace
+{
+    const juce::Identifier abTag { "ABCompare" };
+    const juce::Identifier abActiveId { "active" };
+}
+
+void ParaEQAudioProcessor::switchAB()
+{
+    const auto current = presets.capture();
+    beginUndoStep (activeSlot == 0 ? "Switch to B" : "Switch to A");
+    if (otherSlot.isValid())
+        presets.apply (otherSlot);
+    otherSlot = current;
+    activeSlot = 1 - activeSlot;
+    flushUndo();
+}
+
+void ParaEQAudioProcessor::copyActiveToOther()
+{
+    otherSlot = presets.capture();
+}
+
 void ParaEQAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
     state.setProperty (stateVersionId, currentStateVersion, nullptr);
+
+    juce::ValueTree ab (abTag);
+    ab.setProperty (abActiveId, activeSlot, nullptr);
+    if (otherSlot.isValid())
+        ab.appendChild (otherSlot.createCopy(), nullptr);
+    state.appendChild (ab, nullptr);
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
@@ -340,8 +368,22 @@ void ParaEQAudioProcessor::setStateInformation (const void* data, int sizeInByte
     juce::ignoreUnused (version);
     tree.removeProperty (stateVersionId, nullptr);
 
+    // A/B compare: the inactive slot travels as a child; not part of the
+    // parameter tree itself.
+    activeSlot = 0;
+    otherSlot = {};
+    const auto ab = tree.getChildWithName (abTag);
+    if (ab.isValid())
+    {
+        activeSlot = juce::jlimit (0, 1, (int) ab.getProperty (abActiveId, 0));
+        if (ab.getNumChildren() > 0)
+            otherSlot = ab.getChild (0).createCopy();
+        tree.removeChild (ab, nullptr);
+    }
+
     apvts.replaceState (tree);
     undoManager.clearUndoHistory();
+    presets.resetModifiedReference();
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

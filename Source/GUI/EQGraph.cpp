@@ -144,6 +144,13 @@ int EQGraph::addBandAt (juce::Point<float> plotPosition)
     BandParamRefs::setWithGesture (r.q, type == FilterType::Bell ? 1.0f : (float) limits::defaultQ);
     BandParamRefs::setWithGesture (r.slope, type == FilterType::Bell ? 1.0f : 3.0f);  // 12 or 24 dB/oct
     BandParamRefs::setWithGesture (r.mode, (float) ChannelMode::Stereo);
+    // A reused band starts fresh: dynamics off and at their defaults.
+    for (auto* p : { r.dyn, r.thr, r.range, r.att, r.rel })
+    {
+        p->beginChangeGesture();
+        p->setValueNotifyingHost (p->getDefaultValue());
+        p->endChangeGesture();
+    }
     BandParamRefs::setWithGesture (r.on, 1.0f);
     BandParamRefs::setWithGesture (r.used, 1.0f);
 
@@ -151,6 +158,41 @@ int EQGraph::addBandAt (juce::Point<float> plotPosition)
     refreshFromParameters (true);
     setSelectedBand (band);
     return band;
+}
+
+void EQGraph::copyBand (int band) const
+{
+    if (band >= 0 && bands[(size_t) band].isUsed())
+        juce::SystemClipboard::copyTextToClipboard (bandToClipboardText (bands[(size_t) band]));
+}
+
+bool EQGraph::clipboardHasBand()
+{
+    return isBandClipboardText (juce::SystemClipboard::getTextFromClipboard());
+}
+
+int EQGraph::pasteBand (int target)
+{
+    const auto text = juce::SystemClipboard::getTextFromClipboard();
+    if (! isBandClipboardText (text))
+        return -1;
+
+    if (target < 0)
+    {
+        for (int b = 0; b < FilterEngine::numBands && target < 0; ++b)
+            if (! bands[(size_t) b].isUsed())
+                target = b;
+        if (target < 0)
+            return -1;
+    }
+
+    processor.beginUndoStep ("Paste band");
+    pasteBandFromClipboardText (bands[(size_t) target], text);
+    processor.flushUndo();
+    refreshFromParameters (true);
+    setSelectedBand (target);
+    repaint();
+    return target;
 }
 
 void EQGraph::deleteBand (int band)
@@ -931,7 +973,7 @@ void EQGraph::showBandMenu (int band)
     const int slopeIndex = juce::roundToInt (BandParamRefs::get (r.slope));
     const auto mode = r.channelMode();
 
-    enum { typeBase = 100, slopeBase = 200, modeBase = 300, enableId = 1, soloId = 2, resetId = 3, deleteId = 4 };
+    enum { typeBase = 100, slopeBase = 200, modeBase = 300, enableId = 1, soloId = 2, resetId = 3, deleteId = 4, copyId = 5, pasteId = 6 };
 
     juce::PopupMenu typeMenu, slopeMenu, modeMenu;
     for (int i = 0; i < typeNames().size(); ++i)
@@ -958,6 +1000,9 @@ void EQGraph::showBandMenu (int band)
     menu.addItem (enableId, "Enabled", true, r.isEnabled());
     menu.addItem (soloId, "Solo (listen to this band)", true, processor.getSoloBand() == band);
     menu.addItem (resetId, "Reset gain", typeHasGain (type));
+    menu.addSeparator();
+    menu.addItem (copyId, "Copy band (Ctrl+C)");
+    menu.addItem (pasteId, "Paste onto this band", clipboardHasBand());
     menu.addSeparator();
     menu.addItem (deleteId, "Delete band");
 
@@ -993,6 +1038,8 @@ void EQGraph::showBandMenu (int band)
         else if (result == soloId)   self.toggleSolo (band);
         else if (result == resetId)  self.resetGain (band);
         else if (result == deleteId) self.deleteBand (band);
+        else if (result == copyId)   self.copyBand (band);
+        else if (result == pasteId)  self.pasteBand (band);
 
         self.processor.flushUndo();
         self.refreshFromParameters (true);

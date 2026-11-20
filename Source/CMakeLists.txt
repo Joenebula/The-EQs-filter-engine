@@ -27,6 +27,8 @@ target_sources(ParaEQ PRIVATE
     PluginEditor.cpp
     Parameters.h
     Parameters.cpp
+    PresetManager.h
+    PresetManager.cpp
     GUI/GraphMath.h
     GUI/Theme.h
     GUI/BandParams.h

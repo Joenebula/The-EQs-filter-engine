@@ -1,3 +1,74 @@
+# Phase report: Phase 8 (2026-11-20)
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **44 tests, 191,781 checks, 0 failures** (DSP unchanged this phase) |
+| Plugin-level tests (Linux; Windows CI) | **68 checks, 0 failures** locally (30 new); Windows: see the pull request's checks |
+| Headless GUI test (Linux, Xvfb) | **All 30 checks pass** (4 new) |
+| pluginval strictness 5 (Windows CI) | See the pull request's checks |
+| Cubase | **Not yet tried by a person for Phases 3-8.** |
+
+## Phase 8: presets and automation workflow (done)
+
+![Phase 8](screenshot-phase8.png)
+
+### Presets (`Source/PresetManager.*`)
+
+- 14 factory presets, written for this plugin: Default (flat); Vocal -
+  clarity / de-ess (dynamic) / tame boom (dynamic); Kick - punch; Snare -
+  body and crack; Bass - tidy lows; Acoustic guitar - sparkle; Drum bus -
+  glue; Master - gentle tilt / mid/side width; Low cut 80 Hz; Air boost;
+  Telephone effect. They are starting points, not "magic settings".
+- User presets: Save, Save as (asks before replacing), Rename (refuses to
+  overwrite another preset), Delete (to the Recycle Bin), Import (copies the
+  file into your presets, adding " (2)" if the name is taken, then loads it),
+  Export, Show presets folder. Previous/next buttons step through all
+  presets. The preset name is saved with the project; " *" shows unsaved
+  changes.
+- File format: small XML ".paraeq" files with values in real units. Bypass,
+  window size and analyser settings are not part of a preset. Presets made
+  before a parameter existed load it at its default.
+- Loading a preset is one Undo step, and goes through the host parameters so
+  Cubase's automation and the plugin's own Undo both see it.
+
+### A/B compare
+
+- The A/B button switches between two full sets of settings; the preset menu
+  copies A to B (or B to A). The inactive set is saved with the project.
+
+### Copy and paste bands
+
+- Right-click menu: Copy band, Paste onto this band. Keyboard: Ctrl+C copies
+  the selected band; Ctrl+V pastes it into the first free band. Uses the
+  system clipboard as text, so it works between ParaEQ instances.
+
+### Also fixed
+
+- A band that had been made dynamic, deleted, and then re-used by clicking
+  the graph kept its old dynamic settings. New bands now start with dynamics
+  off.
+
+### Automation
+
+- All 315 parameters were already automatable (Phase 7 tests). This phase
+  makes sure the new actions (presets, A/B, paste) send proper change
+  gestures, so Cubase records them when writing automation.
+
+### Honest notes
+
+- Presets use ParaEQ's own .paraeq files. Cubase's own preset system
+  (.vstpreset, in the plugin window header) also works, because it saves the
+  full plugin state; the two are independent.
+- Undoing an A/B switch restores the sound but the button keeps showing the
+  slot you switched to.
+- Ctrl+C / Ctrl+V reach the plugin only when its window has keyboard focus
+  (click the graph first); otherwise Cubase handles them. The right-click
+  menu always works.
+
+---
+
 # Phase report: Phase 7 (2026-11-20)
 
 ## What was verified, and where

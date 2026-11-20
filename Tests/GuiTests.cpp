@@ -234,6 +234,28 @@ int main (int argc, char** argv)
     editor->setSize (760, 460);
     save (*editor, outDir.getChildFile ("04-small.png"));
 
+    // Presets from the window: step to the next preset, label follows.
+    {
+        editor->setSize (1040, 640);
+        auto& pm = proc->getPresets();
+        pm.setUserFolder (outDir.getChildFile ("presets"));
+        pm.loadFactory (pm.getFactoryNames().indexOf ("Vocal - clarity"));
+        editor->stepPreset (+1);
+        check (pm.getCurrentName() == "Vocal - de-ess (dynamic)", "next-preset button steps to the next factory preset");
+        check (editor->getPresetLabel() == "Vocal - de-ess (dynamic)", "preset bar shows the preset name");
+        auto* gain = proc->getState().getParameter (peq::params::bandID (0, BandField::freq));
+        gain->setValueNotifyingHost (gain->convertTo0to1 (100.0f));
+        check (editor->getPresetLabel().endsWith (" *"), "preset bar marks changes with *");
+        editor->stepPreset (-1);
+        check (pm.getCurrentName() == "Vocal - clarity", "previous-preset button steps back");
+        graph.setSelectedBand (2);
+        graph.pollParameters();
+        save (*editor, outDir.getChildFile ("07-preset.png"));
+        editor->setSize (760, 460);
+        save (*editor, outDir.getChildFile ("08-preset-small.png"));
+        outDir.getChildFile ("presets").deleteRecursively();
+    }
+
     base.reset();
     std::printf ("\n%s (%d failures)\n", failures == 0 ? "ALL GUI CHECKS PASSED" : "GUI CHECKS FAILED", failures);
     return failures == 0 ? 0 : 1;

@@ -76,6 +76,13 @@ public:
     void adjustQ (int band, double wheelSteps);
     void toggleSolo (int band);
 
+    /** Copies a band's settings to the system clipboard. */
+    void copyBand (int band) const;
+    /** Pastes copied settings onto a band, or into the first free band when
+        target is -1. Returns the band pasted into, or -1. */
+    int pasteBand (int target);
+    static bool clipboardHasBand();
+
     /** Where a band's node is drawn, in this component's coordinates. */
     juce::Point<float> nodePosition (int band) const;
 

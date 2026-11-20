@@ -45,8 +45,18 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
     bypassButton.setColour (juce::TextButton::buttonOnColourId, peq::theme::warning);
     analyserButton.onClick = [this] { showAnalyserMenu(); };
     analyserButton.setTooltip ("Spectrum analyser settings");
-    for (auto* b : { &undoButton, &redoButton, &bypassButton, &analyserButton })
+    presetButton.onClick = [this] { showPresetMenu(); };
+    presetButton.setTooltip ("Presets: load, save, rename, delete, import, export");
+    prevPresetButton.onClick = [this] { stepPreset (-1); };
+    nextPresetButton.onClick = [this] { stepPreset (+1); };
+    prevPresetButton.setTooltip ("Previous preset");
+    nextPresetButton.setTooltip ("Next preset");
+    abButton.onClick = [this] { processor.switchAB(); updatePresetBar(); };
+    abButton.setTooltip ("A/B compare: switch between two settings (the preset menu can copy one to the other)");
+    for (auto* b : { &undoButton, &redoButton, &bypassButton, &analyserButton,
+                     &presetButton, &prevPresetButton, &nextPresetButton, &abButton })
         addAndMakeVisible (*b);
+    updatePresetBar();
     loadAnalyserSettings();
 
     rangeBox.addItemList ({ "+/- 6 dB", "+/- 12 dB", "+/- 18 dB", "+/- 30 dB" }, 1);
@@ -201,6 +211,212 @@ void ParaEQAudioProcessorEditor::timerCallback()
     auto& um = processor.getUndoManager();
     undoButton.setEnabled (um.canUndo());
     redoButton.setEnabled (um.canRedo());
+    updatePresetBar();
+}
+
+//==============================================================================
+juce::String ParaEQAudioProcessorEditor::getPresetLabel() const
+{
+    auto& pm = processor.getPresets();
+    return pm.getCurrentName() + (pm.isModified() ? " *" : "");
+}
+
+void ParaEQAudioProcessorEditor::updatePresetBar()
+{
+    const auto label = getPresetLabel();
+    if (presetButton.getButtonText() != label)
+        presetButton.setButtonText (label);
+    const juce::String ab = processor.getActiveSlot() == 0 ? "A" : "B";
+    if (abButton.getButtonText() != ab)
+        abButton.setButtonText (ab);
+}
+
+void ParaEQAudioProcessorEditor::stepPreset (int direction)
+{
+    auto& pm = processor.getPresets();
+    const auto factory = pm.getFactoryNames();
+    const auto user = pm.getUserNames();
+    const int total = factory.size() + user.size();
+    if (total == 0)
+        return;
+
+    const auto current = pm.getCurrentName();
+    int index = user.indexOf (current);
+    index = index >= 0 ? factory.size() + index : factory.indexOf (current);
+
+    const int next = index < 0 ? (direction > 0 ? 0 : total - 1)
+                               : (index + direction + total) % total;
+    if (next < factory.size())
+        pm.loadFactory (next);
+    else
+        pm.loadUser (user[next - factory.size()]);
+    updatePresetBar();
+}
+
+void ParaEQAudioProcessorEditor::askForName (const juce::String& title, const juce::String& initial,
+                                             std::function<void (juce::String)> onOk)
+{
+    auto* w = new juce::AlertWindow (title, "Preset name:", juce::MessageBoxIconType::NoIcon, this);
+    w->addTextEditor ("name", initial);
+    w->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<ParaEQAudioProcessorEditor> safe (this);
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([safe, w, onOk] (int result)
+    {
+        const auto name = PresetManager::sanitiseName (w->getTextEditorContents ("name"));
+        if (safe != nullptr && result == 1 && name.isNotEmpty())
+            onOk (name);
+    }), true);
+}
+
+void ParaEQAudioProcessorEditor::saveAsWithName (const juce::String& name)
+{
+    auto& pm = processor.getPresets();
+    auto doSave = [this, name]
+    {
+        if (! processor.getPresets().saveUser (name))
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "ParaEQ",
+                                                    "Could not save the preset to\n"
+                                                    + processor.getPresets().getUserFolder().getFullPathName());
+        updatePresetBar();
+    };
+
+    if (! pm.userPresetExists (name))
+    {
+        doSave();
+        return;
+    }
+
+    juce::Component::SafePointer<ParaEQAudioProcessorEditor> safe (this);
+    juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon, "Replace preset?",
+                                        "A preset called \"" + name + "\" already exists. Replace it?",
+                                        "Replace", "Cancel", this,
+                                        juce::ModalCallbackFunction::create ([safe, doSave] (int ok)
+                                        {
+                                            if (safe != nullptr && ok != 0)
+                                                doSave();
+                                        }));
+}
+
+void ParaEQAudioProcessorEditor::importPreset()
+{
+    fileChooser = std::make_unique<juce::FileChooser> ("Import a ParaEQ preset", juce::File(),
+                                                       juce::String ("*") + PresetManager::fileExtension);
+    juce::Component::SafePointer<ParaEQAudioProcessorEditor> safe (this);
+    fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                              [safe] (const juce::FileChooser& fc)
+    {
+        if (safe == nullptr || fc.getResult() == juce::File())
+            return;
+        if (safe->processor.getPresets().importFrom (fc.getResult()).isEmpty())
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "ParaEQ",
+                                                    "That file is not a ParaEQ preset.");
+        safe->updatePresetBar();
+    });
+}
+
+void ParaEQAudioProcessorEditor::exportPreset()
+{
+    auto& pm = processor.getPresets();
+    const auto start = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                           .getChildFile (PresetManager::sanitiseName (pm.getCurrentName()) + PresetManager::fileExtension);
+    fileChooser = std::make_unique<juce::FileChooser> ("Export preset", start,
+                                                       juce::String ("*") + PresetManager::fileExtension);
+    juce::Component::SafePointer<ParaEQAudioProcessorEditor> safe (this);
+    fileChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                                  | juce::FileBrowserComponent::warnAboutOverwriting,
+                              [safe] (const juce::FileChooser& fc)
+    {
+        if (safe == nullptr || fc.getResult() == juce::File())
+            return;
+        if (! safe->processor.getPresets().exportTo (fc.getResult()))
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "ParaEQ",
+                                                    "Could not write the preset file.");
+    });
+}
+
+void ParaEQAudioProcessorEditor::showPresetMenu()
+{
+    auto& pm = processor.getPresets();
+    const auto factory = pm.getFactoryNames();
+    const auto user = pm.getUserNames();
+    const auto current = pm.getCurrentName();
+    const bool currentIsUser = pm.userPresetExists (current);
+
+    enum { factoryBase = 1000, userBase = 2000, saveId = 1, saveAsId, renameId, deleteId,
+           importId, exportId, folderId, copyAbId };
+
+    juce::PopupMenu factoryMenu;
+    for (int i = 0; i < factory.size(); ++i)
+        factoryMenu.addItem (factoryBase + i, factory[i], true, factory[i] == current && ! currentIsUser);
+
+    juce::PopupMenu menu;
+    menu.addSubMenu ("Factory presets", factoryMenu);
+    menu.addSectionHeader ("My presets");
+    if (user.isEmpty())
+        menu.addItem (-1, "(none yet: use Save as...)", false);
+    for (int i = 0; i < user.size(); ++i)
+        menu.addItem (userBase + i, user[i], true, user[i] == current);
+    menu.addSeparator();
+    menu.addItem (saveId, "Save \"" + current + "\"", currentIsUser);
+    menu.addItem (saveAsId, "Save as...");
+    menu.addItem (renameId, "Rename...", currentIsUser);
+    menu.addItem (deleteId, "Delete", currentIsUser);
+    menu.addSeparator();
+    menu.addItem (importId, "Import...");
+    menu.addItem (exportId, "Export...");
+    menu.addItem (folderId, "Show presets folder");
+    menu.addSeparator();
+    menu.addItem (copyAbId, processor.getActiveSlot() == 0 ? "Copy A to B" : "Copy B to A");
+
+    juce::Component::SafePointer<ParaEQAudioProcessorEditor> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&presetButton),
+                        [safe, factory, user, current] (int r)
+    {
+        if (safe == nullptr || r <= 0)
+            return;
+        auto& self = *safe;
+        auto& p = self.processor.getPresets();
+
+        if (r >= factoryBase && r < factoryBase + factory.size())  p.loadFactory (r - factoryBase);
+        else if (r >= userBase && r < userBase + user.size())      p.loadUser (user[r - userBase]);
+        else if (r == saveId)    self.saveAsWithName (current);
+        else if (r == saveAsId)
+            self.askForName ("Save preset", current, [safe] (juce::String name)
+            {
+                if (safe != nullptr) safe->saveAsWithName (name);
+            });
+        else if (r == renameId)
+            self.askForName ("Rename preset", current, [safe, current] (juce::String name)
+            {
+                if (safe == nullptr)
+                    return;
+                if (! safe->processor.getPresets().renameUser (current, name))
+                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "ParaEQ",
+                                                            "Could not rename: a preset called \"" + name + "\" may already exist.");
+                safe->updatePresetBar();
+            });
+        else if (r == deleteId)
+            juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon, "Delete preset?",
+                                                "Delete \"" + current + "\"? It goes to the Recycle Bin.",
+                                                "Delete", "Cancel", safe.getComponent(),
+                                                juce::ModalCallbackFunction::create ([safe, current] (int ok)
+                                                {
+                                                    if (safe != nullptr && ok != 0)
+                                                        safe->processor.getPresets().deleteUser (current);
+                                                }));
+        else if (r == importId)  self.importPreset();
+        else if (r == exportId)  self.exportPreset();
+        else if (r == folderId)
+        {
+            auto folder = p.getUserFolder();
+            folder.createDirectory();
+            folder.startAsProcess();
+        }
+        else if (r == copyAbId)  self.processor.copyActiveToOther();
+
+        self.updatePresetBar();
+    });
 }
 
 bool ParaEQAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
@@ -216,6 +432,16 @@ bool ParaEQAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
     if (mods.isCommandDown() && (code == 'Y' || code == 'y'))
     {
         redo();
+        return true;
+    }
+    if (mods.isCommandDown() && (code == 'C' || code == 'c'))
+    {
+        graph.copyBand (graph.getSelectedBand());
+        return true;
+    }
+    if (mods.isCommandDown() && (code == 'V' || code == 'v'))
+    {
+        graph.pasteBand (-1);
         return true;
     }
     if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
@@ -239,12 +465,6 @@ void ParaEQAudioProcessorEditor::paint (juce::Graphics& g)
     g.setColour (peq::theme::text);
     g.setFont (peq::theme::font (19.0f, true));
     g.drawText ("ParaEQ", bar.reduced (14, 0), juce::Justification::centredLeft);
-    if (getWidth() >= 960)
-    {
-        g.setColour (peq::theme::textDim);
-        g.setFont (peq::theme::font (11.0f));
-        g.drawText ("24-band parametric EQ", bar.reduced (14, 0).withTrimmedLeft (84), juce::Justification::centredLeft);
-    }
 }
 
 void ParaEQAudioProcessorEditor::resized()
@@ -256,28 +476,46 @@ void ParaEQAudioProcessorEditor::resized()
     auto area = getLocalBounds();
     auto bar = area.removeFromTop (topBarHeight).reduced (10, 9);
     const bool compact = getWidth() < 960;
-    bar.removeFromLeft (compact ? 100 : 230);  // title
+    bar.removeFromLeft (compact ? 72 : 92);  // title
 
-    bypassButton.setBounds (bar.removeFromRight (70));
+    // Right side: IN, OUT, meter, Bypass.
+    bypassButton.setBounds (bar.removeFromRight (compact ? 62 : 70));
     bar.removeFromRight (compact ? 6 : 10);
     outputMeter.setBounds (bar.removeFromRight (14).withSizeKeepingCentre (14, juce::jmin (bar.getHeight() + 6, 34)));
     bar.removeFromRight (compact ? 6 : 10);
-    outGainKnob.setBounds (bar.removeFromRight (compact ? 88 : 100));
-    outGainLabel.setBounds (bar.removeFromRight (34));
-    bar.removeFromRight (compact ? 4 : 10);
-    inGainKnob.setBounds (bar.removeFromRight (compact ? 88 : 100));
-    inGainLabel.setBounds (bar.removeFromRight (26));
+    const int knobW = compact ? 30 : 100;   // compact: knob only, value on hover/drag
+    for (auto* k : { &inGainKnob, &outGainKnob })
+        k->setTextBoxStyle (compact ? juce::Slider::NoTextBox : juce::Slider::TextBoxRight, false, 58, 18);
+    outGainKnob.setBounds (bar.removeFromRight (knobW));
+    outGainLabel.setBounds (bar.removeFromRight (compact ? 30 : 34));
+    bar.removeFromRight (compact ? 2 : 10);
+    inGainKnob.setBounds (bar.removeFromRight (knobW));
+    inGainLabel.setBounds (bar.removeFromRight (compact ? 20 : 26));
+    bar.removeFromRight (compact ? 6 : 12);
 
-    undoButton.setBounds (bar.removeFromLeft (56));
+    // Left side: Undo, Redo, presets, A/B, range, analyser.
+    undoButton.setBounds (bar.removeFromLeft (compact ? 48 : 56));
     bar.removeFromLeft (4);
-    redoButton.setBounds (bar.removeFromLeft (56));
-    bar.removeFromLeft (compact ? 6 : 16);
-    rangeLabel.setBounds (bar.removeFromLeft (compact ? 0 : 48));
-    rangeLabel.setVisible (! compact);
-    bar.removeFromLeft (compact ? 0 : 6);
-    rangeBox.setBounds (bar.removeFromLeft (juce::jmin (compact ? 100 : 110, bar.getWidth())));
-    bar.removeFromLeft (compact ? 6 : 10);
-    analyserButton.setBounds (bar.removeFromLeft (juce::jmin (84, bar.getWidth())));
+    redoButton.setBounds (bar.removeFromLeft (compact ? 48 : 56));
+    bar.removeFromLeft (compact ? 8 : 14);
+
+    rangeLabel.setVisible (false);
+    analyserButton.setBounds (bar.removeFromRight (compact ? 72 : 84));
+    bar.removeFromRight (compact ? 4 : 8);
+    rangeBox.setBounds (bar.removeFromRight (compact ? 92 : 104));
+    bar.removeFromRight (compact ? 6 : 12);
+
+    abButton.setBounds (bar.removeFromRight (34));
+    bar.removeFromRight (4);
+    const bool arrows = bar.getWidth() >= 150;
+    prevPresetButton.setVisible (arrows);
+    nextPresetButton.setVisible (arrows);
+    if (arrows)
+    {
+        prevPresetButton.setBounds (bar.removeFromLeft (24));
+        nextPresetButton.setBounds (bar.removeFromRight (24));
+    }
+    presetButton.setBounds (bar);
 
     bandPanel.setBounds (area.removeFromBottom (panelHeight));
     graph.setBounds (area);

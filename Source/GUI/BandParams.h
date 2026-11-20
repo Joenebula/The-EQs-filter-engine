@@ -107,6 +107,53 @@ inline AllBands makeBandRefs (juce::AudioProcessorValueTreeState& state)
     return refs;
 }
 
+//==============================================================================
+// Copy and paste of a band's settings. The text goes on the system clipboard,
+// so a band can be pasted into another ParaEQ instance too.
+
+inline const char* bandClipboardTag() noexcept { return "ParaEQBand"; }
+
+/** The band's settings (all fields except "used") as clipboard text. */
+inline juce::String bandToClipboardText (const BandParamRefs& r)
+{
+    juce::XmlElement xml (bandClipboardTag());
+    auto add = [&xml] (const char* name, const juce::RangedAudioParameter* p)
+    {
+        xml.setAttribute (name, (double) BandParamRefs::get (p));
+    };
+    add ("on", r.on); add ("type", r.type); add ("freq", r.freq); add ("gain", r.gain);
+    add ("q", r.q); add ("slope", r.slope); add ("mode", r.mode);
+    add ("dyn", r.dyn); add ("thr", r.thr); add ("range", r.range); add ("att", r.att); add ("rel", r.rel);
+    return xml.toString (juce::XmlElement::TextFormat().singleLine().withoutHeader());
+}
+
+/** True if the text is a copied ParaEQ band. */
+inline bool isBandClipboardText (const juce::String& text)
+{
+    auto xml = juce::parseXML (text);
+    return xml != nullptr && xml->hasTagName (bandClipboardTag());
+}
+
+/** Applies copied settings to a band (and marks it used). Each change is its
+    own host gesture. Returns false if the text is not a copied band. */
+inline bool pasteBandFromClipboardText (BandParamRefs& r, const juce::String& text)
+{
+    auto xml = juce::parseXML (text);
+    if (xml == nullptr || ! xml->hasTagName (bandClipboardTag()))
+        return false;
+    auto put = [&xml] (const char* name, juce::RangedAudioParameter* p)
+    {
+        if (xml->hasAttribute (name))
+            BandParamRefs::setWithGesture (p, (float) xml->getDoubleAttribute (name));
+    };
+    put ("type", r.type); put ("slope", r.slope); put ("mode", r.mode);
+    put ("freq", r.freq); put ("gain", r.gain); put ("q", r.q);
+    put ("dyn", r.dyn); put ("thr", r.thr); put ("range", r.range); put ("att", r.att); put ("rel", r.rel);
+    put ("on", r.on);
+    BandParamRefs::setWithGesture (r.used, 1.0f);
+    return true;
+}
+
 /** True for filter types whose gain control does something. */
 inline bool typeHasGain (FilterType t) noexcept
 {

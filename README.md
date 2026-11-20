@@ -4,14 +4,14 @@ An original parametric EQ plugin (VST3, Windows, for use in Cubase), built with
 JUCE and C++17. Personal-use project. No third-party EQ code, names or artwork
 is used; all DSP is written from published filter maths.
 
-**Status: Phase 7 of 10.** 24 working EQ bands (each with its own type, slope
+**Status: Phase 8 of 10.** 24 working EQ bands (each with its own type, slope
 and stereo / left / right / mid / side routing), dynamic EQ on any bell or
 shelf, an interactive EQ graph, a real-time spectrum analyser and an output
-meter.
+meter, plus presets, A/B compare and copy/paste of bands.
 See [docs/PHASE_REPORT.md](docs/PHASE_REPORT.md). To try it in Cubase, follow
 [docs/CUBASE_TESTING.md](docs/CUBASE_TESTING.md).
 
-![ParaEQ](docs/screenshot-phase6.png)
+![ParaEQ](docs/screenshot-phase8.png)
 
 ## Using it
 
@@ -32,6 +32,17 @@ See [docs/PHASE_REPORT.md](docs/PHASE_REPORT.md). To try it in Cubase, follow
   fast it reacts and lets go. On the graph a dynamic band shows a bar from its
   dot to where its range ends, a dotted curve for the full range, and the
   live curve it is applying right now.
+- **Presets**: click the preset name for factory presets, your own presets,
+  Save / Save as / Rename / Delete, Import / Export (.paraeq files) and the
+  presets folder. **<** and **>** step through them. A * after the name means
+  you have changed something since loading it. Your presets are stored in
+  `%APPDATA%\Home Studio\ParaEQ\Presets`.
+- **A / B**: the A button switches between two complete settings so you can
+  compare; the preset menu can copy one to the other. Both are saved with
+  the project.
+- **Copy / paste a band**: right-click a dot > Copy band (or select it and
+  press Ctrl+C). Ctrl+V pastes it as a new band; right-click > Paste onto
+  this band replaces another band. Works between ParaEQ instances too.
 - The small meter next to Bypass is the output peak level; it lights red above
   0 dBFS (click it to reset).
 - The panel at the bottom shows every setting of the selected band.

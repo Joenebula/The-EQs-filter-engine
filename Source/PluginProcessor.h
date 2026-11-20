@@ -2,6 +2,7 @@
 
 #include "DSP/FilterEngine.h"
 #include "DSP/SampleFifo.h"
+#include "PresetManager.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -62,6 +63,16 @@ public:
         edit lands in the step it belongs to. Message thread only. */
     void flushUndo()                            { apvts.copyState(); }
     void beginUndoStep (const juce::String& name) { flushUndo(); undoManager.beginNewTransaction (name); }
+
+    PresetManager& getPresets() noexcept { return presets; }
+
+    /** A/B compare: two complete sets of settings. The host parameters always
+        hold the active one; switching stores them and recalls the other. Both
+        are saved with the project. Message thread only. */
+    int getActiveSlot() const noexcept { return activeSlot; }   // 0 = A, 1 = B
+    void switchAB();
+    /** Copies the active settings into the other slot (A to B or B to A). */
+    void copyActiveToOther();
 
     /** Band solo ("audition"): plays only the region a band works on, through
         a band-pass at the band's frequency. -1 = no solo. Not automatable and
@@ -124,6 +135,9 @@ private:
 
     juce::UndoManager undoManager { 30000, 100 };
     juce::AudioProcessorValueTreeState apvts;
+    PresetManager presets { apvts, &undoManager };
+    int activeSlot = 0;
+    juce::ValueTree otherSlot;   // the inactive A/B settings ("Params" tree); invalid = same as active
     std::atomic<float>* inputGainDb  = nullptr;
     std::atomic<float>* outputGainDb = nullptr;
     juce::AudioParameterBool* bypassParam = nullptr;
