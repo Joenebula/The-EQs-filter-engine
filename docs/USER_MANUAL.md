@@ -271,6 +271,7 @@ is in the preset menu. Both settings are saved with the project.
 | Problem | Try this |
 |---|---|
 | ParaEQ isn't in the plugin list | Check `C:\Program Files\Common Files\VST3\ParaEQ.vst3` exists, then Studio > VST Plug-in Manager > Rescan. Make sure Cubase is 64-bit. |
+| Installer says "Error 183" (ParaEQ.vst3 already exists) | Fixed in the current installer, which removes any old ParaEQ.vst3 first. With an older installer: cancel, delete `C:\Program Files\Common Files\VST3\ParaEQ.vst3` (file or folder), run it again. |
 | Cubase lists it as blocked | In the Plug-in Manager, select ParaEQ in the blocklist and click "Reactivate". |
 | No sound change | Is **Bypass** on? Is the band's **On** button on? Is the band set to Side on a mono source? |
 | The analyser is flat | It only shows while audio plays and the window is open. Check Analyser > Show isn't Off. |
