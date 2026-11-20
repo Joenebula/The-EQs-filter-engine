@@ -4,7 +4,7 @@ An original parametric EQ plugin (VST3, Windows, for use in Cubase), built with
 JUCE and C++17. Personal-use project. No third-party EQ code, names or artwork
 is used; all DSP is written from published filter maths.
 
-**Status: Phase 8 of 10.** 24 working EQ bands (each with its own type, slope
+**Status: all 10 phases done (version 1.0).** 24 working EQ bands (each with its own type, slope
 and stereo / left / right / mid / side routing), dynamic EQ on any bell or
 shelf, an interactive EQ graph, a real-time spectrum analyser and an output
 meter, plus presets, A/B compare and copy/paste of bands.
@@ -51,11 +51,22 @@ See [docs/PHASE_REPORT.md](docs/PHASE_REPORT.md). To try it in Cubase, follow
 
 ## Quick install (no building needed)
 
-1. Download the latest build (no GitHub sign-in needed):
-   <https://github.com/Joenebula/The-EQs-filter-engine/releases/download/latest/ParaEQ-VST3-Windows-x64.zip>
-2. Unzip it. Copy the `ParaEQ.vst3` folder into
-   `C:\Program Files\Common Files\VST3\`.
-3. In Cubase: **Studio > VST Plug-in Manager**, press **Rescan**.
+Downloads (no GitHub sign-in needed). Builds from `main` are under `latest`;
+builds waiting to be merged are under `preview` (same file names):
+
+- Installer: <https://github.com/Joenebula/The-EQs-filter-engine/releases/download/latest/ParaEQ-Setup-Windows-x64.exe>
+- Plain zip: <https://github.com/Joenebula/The-EQs-filter-engine/releases/download/latest/ParaEQ-VST3-Windows-x64.zip>
+- Manual: <https://github.com/Joenebula/The-EQs-filter-engine/releases/download/latest/ParaEQ-Manual.html>
+
+1. Close Cubase and run the installer (Windows may warn that it is unsigned:
+   More info > Run anyway). Or unzip the zip and copy the `ParaEQ.vst3`
+   folder into `C:\Program Files\Common Files\VST3\`.
+2. In Cubase: **Studio > VST Plug-in Manager**, press **Rescan** if ParaEQ
+   doesn't appear.
+
+Full user manual: [docs/USER_MANUAL.md](docs/USER_MANUAL.md) (also built as
+`docs/ParaEQ-Manual.html` by `tools/make_manual.py`, and installed with the
+plugin).
 
 ## Requirements (Windows)
 
@@ -83,6 +94,14 @@ cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 ```
 
+To build the installer as well, install Inno Setup 6 and run:
+
+```bat
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\ParaEQ.iss
+```
+
+(output: `build\installer\ParaEQ-Setup-Windows-x64.exe`).
+
 The plugin is written to:
 
 ```
@@ -106,7 +125,8 @@ copy it automatically). In Cubase open **Studio > VST Plug-in Manager**, press
 | Option | Default | Meaning |
 |---|---|---|
 | `PEQ_BUILD_PLUGIN` | ON | Build the VST3 (and a standalone app for quick testing) |
-| `PEQ_BUILD_TESTS` | ON | Build the DSP unit tests (no dependencies) |
+| `PEQ_BUILD_TESTS` | ON | Build the DSP tests and the plugin-level tests |
+| `PEQ_BUILD_GUI_TESTS` | OFF | Build the headless GUI test (needs a display) |
 | `PEQ_JUCE_DIR` | empty | Use a local JUCE checkout instead of downloading |
 | `PEQ_COPY_AFTER_BUILD` | OFF | Copy the VST3 into the system folder after building |
 
@@ -125,17 +145,21 @@ CMakeLists.txt          Top-level build (DSP library, tests, plugin)
 Source/
   CMakeLists.txt        Plugin target and identity (name, vendor, IDs)
   PluginProcessor.*     VST3 processor (audio, parameters, state)
-  PluginEditor.*        Window (placeholder until Phase 4)
+  PluginEditor.*        Window: top bar, graph, band panel, preset menu
   Parameters.*          Host-automatable parameter definitions
+  PresetManager.*       Factory and user presets, import/export
   DSP/                  Framework-free C++ DSP, unit-tested
     Biquad.h            Coefficients, TDF-II state, response maths
     FilterDesign.*      All filter shapes and slopes
     EQBand.*            One smoothed, click-free band
     FilterEngine.*      24 bands in series with per-band channel routing
-  GUI/                  EQ graph, band panel, look and feel
-Resources/              (Phase 8+) presets, fonts, images
-Tests/                  Dependency-free unit tests
-docs/                   Phase reports and user documentation
+    Dynamics.h          Dynamic EQ detector and gain law
+    SpectrumAnalyser.*  FFT analyser; SampleFifo.h lock-free audio FIFO
+  GUI/                  EQ graph, band panel, meter, look and feel
+Tests/                  DSP tests, plugin-level tests, headless GUI test
+installer/ParaEQ.iss    Inno Setup script for the Windows installer
+tools/make_manual.py    Builds the HTML manual from docs/USER_MANUAL.md
+docs/                   Manual, Cubase test checklist, phase reports
 ```
 
 The spec suggested `/Build/CMakeLists.txt`; the CMake file sits at the project

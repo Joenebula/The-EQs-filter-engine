@@ -47,6 +47,26 @@ jobs:
           path: pluginval-logs
           if-no-files-found: ignore
 
+      # Windows installer (Inno Setup, preinstalled on GitHub's Windows images).
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress -y
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          $version = (Select-String -Path CMakeLists.txt -Pattern 'project\(ParametricEQ VERSION ([0-9.]+)').Matches[0].Groups[1].Value
+          & $iscc "/DAppVersion=$version" "/DVST3Dir=$PWD\build\Source\ParaEQ_artefacts\Release\VST3" "/DManual=$PWD\docs\ParaEQ-Manual.html" "/DOutDir=$PWD\build\installer" installer\ParaEQ.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-ChildItem build\installer
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ParaEQ-Setup-Windows-x64
+          path: build/installer/ParaEQ-Setup-Windows-x64.exe
+
       # The folder above ParaEQ.vst3 is uploaded, so the downloaded zip
       # unpacks straight to a ready-to-install ParaEQ.vst3 folder.
       - name: Upload VST3
@@ -71,8 +91,10 @@ jobs:
           } else {
             $tag = "preview"; $title = "ParaEQ preview build (not merged yet)"; $pre = @("--prerelease")
           }
-          $notes = "Built from ${{ github.ref_name }} at ${{ github.sha }}.`n`nInstall: unzip, copy the ParaEQ.vst3 folder into C:\Program Files\Common Files\VST3\, then rescan in Cubase (Studio > VST Plug-in Manager)."
+          Copy-Item build/installer/ParaEQ-Setup-Windows-x64.exe .
+          Copy-Item docs/ParaEQ-Manual.html .
+          $notes = "Built from ${{ github.ref_name }} at ${{ github.sha }}.`n`nEasiest: run ParaEQ-Setup-Windows-x64.exe (close Cubase first). Or unzip ParaEQ-VST3-Windows-x64.zip and copy the ParaEQ.vst3 folder into C:\Program Files\Common Files\VST3\. Then rescan in Cubase (Studio > VST Plug-in Manager). ParaEQ-Manual.html is the user manual."
           gh release delete $tag --yes --cleanup-tag 2>$null
           $global:LASTEXITCODE = 0
-          gh release create $tag ParaEQ-VST3-Windows-x64.zip --target ${{ github.sha }} --title $title --notes $notes @pre
+          gh release create $tag ParaEQ-VST3-Windows-x64.zip ParaEQ-Setup-Windows-x64.exe ParaEQ-Manual.html --target ${{ github.sha }} --title $title --notes $notes @pre
           if ($LASTEXITCODE -ne 0) { exit 1 }

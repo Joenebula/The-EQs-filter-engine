@@ -11,11 +11,38 @@
 #include "../Source/GUI/BandParams.h"
 
 #include <atomic>
+#include <chrono>
+#include <cstdlib>
+#include <new>
 #include <cmath>
 #include <cstdio>
 #include <memory>
 #include <thread>
 #include <vector>
+
+//==============================================================================
+// Allocation counter: every heap allocation in the process goes through
+// these. While countAllocations is set on a thread, allocations made on
+// that thread are counted, so we can prove processBlock never allocates.
+namespace
+{
+thread_local bool countAllocations = false;
+std::atomic<long> allocationCount { 0 };
+}
+
+void* operator new (std::size_t size)
+{
+    if (countAllocations)
+        allocationCount.fetch_add (1);
+    if (void* p = std::malloc (size == 0 ? 1 : size))
+        return p;
+    throw std::bad_alloc();
+}
+void* operator new[] (std::size_t size) { return operator new (size); }
+void operator delete (void* p) noexcept { std::free (p); }
+void operator delete[] (void* p) noexcept { std::free (p); }
+void operator delete (void* p, std::size_t) noexcept { std::free (p); }
+void operator delete[] (void* p, std::size_t) noexcept { std::free (p); }
 
 namespace
 {
@@ -644,6 +671,219 @@ int main()
                         BandField::att, BandField::rel })
             same = same && near (getValue (bandParam (*p, 0, f)), getValue (bandParam (*p, 9, f)), 1e-3);
         check (same, "pasted band matches the copied one in every setting");
+    }
+
+    // ---------------------------------------------------------------- Phase 9
+    // A "busy" setup: all 24 bands in use, mixed types, channel modes and
+    // slopes, half of them dynamic. Used by the next three tests.
+    auto busySetup = [] (ParaEQAudioProcessor& p, juce::Random& rng)
+    {
+        for (int b = 0; b < peq::params::numBands; ++b)
+        {
+            setValue (bandParam (p, b, BandField::used), 1.0f);
+            setValue (bandParam (p, b, BandField::type), (float) (b % 7));
+            setValue (bandParam (p, b, BandField::freq), 30.0f * std::pow (600.0f, rng.nextFloat()));
+            setValue (bandParam (p, b, BandField::gain), rng.nextFloat() * 24.0f - 12.0f);
+            setValue (bandParam (p, b, BandField::q), 0.3f + rng.nextFloat() * 4.0f);
+            setValue (bandParam (p, b, BandField::slope), (float) rng.nextInt (8));
+            setValue (bandParam (p, b, BandField::mode), (float) (b % 5));
+            setValue (bandParam (p, b, BandField::dyn), b % 2 == 0 ? 1.0f : 0.0f);
+            setValue (bandParam (p, b, BandField::thr), -40.0f);
+        }
+    };
+
+    // No heap allocation on the audio thread, in any state (steady, while
+    // every parameter moves, through bypass and back, with the analyser on).
+    {
+        auto p = makeProcessor (48000.0, 512);
+        juce::Random rng (21);
+        busySetup (*p, rng);
+        p->setAnalyserWanted (true);
+        juce::AudioBuffer<float> buf (2, 512);
+        juce::AudioBuffer<double> dbuf (2, 512);
+        juce::MidiBuffer midi;
+        auto& params = p->getParameters();
+        long allocations = 0;
+        for (int block = 0; block < 400; ++block)
+        {
+            // Parameter changes happen on "another thread" (not counted).
+            if (block % 3 == 0)
+                for (int k = 0; k < 20; ++k)
+                    params[rng.nextInt (params.size())]->setValueNotifyingHost (rng.nextFloat());
+            if (block == 150) setValue (param (*p, peq::params::bypass), 1.0f);
+            if (block == 200) setValue (param (*p, peq::params::bypass), 0.0f);
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < 512; ++i)
+                    buf.setSample (ch, i, rng.nextFloat() - 0.5f);
+
+            allocationCount = 0;
+            countAllocations = true;
+            p->processBlock (buf, midi);
+            countAllocations = false;
+            allocations += allocationCount.load();
+        }
+        // Sanity: the counter does see allocations.
+        countAllocations = true;
+        allocationCount = 0;
+        { std::vector<int> probe (100); juce::ignoreUnused (probe); }
+        countAllocations = false;
+        check (allocationCount.load() > 0, "allocation counter works (sees a test allocation)");
+        check (allocations == 0, "no memory allocation on the audio thread (400 blocks, all parameters moving)");
+
+        p->setProcessingPrecision (juce::AudioProcessor::doublePrecision);
+        p->prepareToPlay (48000.0, 512);
+        allocationCount = 0;
+        countAllocations = true;
+        for (int block = 0; block < 50; ++block)
+            p->processBlock (dbuf, midi);
+        countAllocations = false;
+        check (allocationCount.load() == 0, "no memory allocation in 64-bit processing either");
+    }
+
+    // Stress: random parameters every block, random block sizes (1..4096),
+    // sample-rate changes, extreme input (silence, full-scale noise, DC,
+    // tiny values). Output must stay finite and bounded.
+    {
+        auto p = makeProcessor (48000.0, 4096);
+        juce::Random rng (77);
+        busySetup (*p, rng);
+        auto& params = p->getParameters();
+        juce::AudioBuffer<float> buf (2, 4096);
+        juce::MidiBuffer midi;
+        bool ok = true;
+        double worst = 0.0;
+        const double rates[] = { 44100.0, 48000.0, 96000.0, 192000.0, 22050.0 };
+        for (int round = 0; round < 5 && ok; ++round)
+        {
+            const double sr = rates[round];
+            p->setRateAndBufferSizeDetails (sr, 4096);
+            p->prepareToPlay (sr, 4096);
+            for (int block = 0; block < 300 && ok; ++block)
+            {
+                for (int k = 0; k < 8; ++k)
+                    if (auto* prm = params[rng.nextInt (params.size())]; prm != p->getBypassParameter())
+                        prm->setValueNotifyingHost (rng.nextFloat());
+                // Keep gains sane enough that "bounded" is meaningful.
+                setValue (param (*p, peq::params::inputGain), 0.0f);
+                setValue (param (*p, peq::params::outputGain), 0.0f);
+
+                const int n = 1 + rng.nextInt (4096);
+                buf.setSize (2, n, false, false, true);
+                const int kind = rng.nextInt (4);
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < n; ++i)
+                        buf.setSample (ch, i, kind == 0 ? 0.0f
+                                            : kind == 1 ? rng.nextFloat() * 2.0f - 1.0f
+                                            : kind == 2 ? 0.5f
+                                                        : (rng.nextFloat() - 0.5f) * 1.0e-30f);
+                p->processBlock (buf, midi);
+                for (int ch = 0; ch < 2 && ok; ++ch)
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const float y = buf.getSample (ch, i);
+                        if (! std::isfinite (y)) { ok = false; break; }
+                        worst = std::max (worst, (double) std::abs (y));
+                    }
+            }
+        }
+        std::printf ("       stress: largest output sample %.1f (24 bands up to +30 dB each can add a lot)\n", worst);
+        // 24 bands could stack 24 x 30 dB in theory; a blow-up shows as inf/NaN
+        // or astronomically large values, which is what we check against.
+        check (ok && worst < 1.0e6, "stress: 1500 random blocks at 5 sample rates stay finite and stable");
+    }
+
+    // Host-like threading: the audio thread processes while the "message
+    // thread" moves parameters, saves and loads state and presets, and reads
+    // meters - all at the same time. Run under ThreadSanitizer to find races.
+    {
+        auto p = makeProcessor (48000.0, 256);
+        juce::Random rng (8);
+        busySetup (*p, rng);
+        p->setAnalyserWanted (true);
+        std::atomic<bool> running { true };
+        std::atomic<bool> audioOk { true };
+        std::thread audio ([&]
+        {
+            juce::AudioBuffer<float> buf (2, 256);
+            juce::MidiBuffer midi;
+            juce::Random r (9);
+            while (running.load())
+            {
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < 256; ++i)
+                        buf.setSample (ch, i, r.nextFloat() - 0.5f);
+                p->processBlock (buf, midi);
+                for (int i = 0; i < 256; ++i)
+                    if (! std::isfinite (buf.getSample (0, i)))
+                        audioOk = false;
+            }
+        });
+
+        auto& params = p->getParameters();
+        auto& pm = p->getPresets();
+        std::vector<float> fifoOut (4096);
+        for (int round = 0; round < 300; ++round)
+        {
+            for (int k = 0; k < 10; ++k)
+                if (auto* prm = params[rng.nextInt (params.size())]; prm != p->getBypassParameter())
+                    prm->setValueNotifyingHost (rng.nextFloat());
+            juce::ignoreUnused (p->takeOutputPeak (0), p->getDynamicGainDb (rng.nextInt (24)));
+            p->getPostFifo().pop (fifoOut.data(), fifoOut.size());
+            if (round % 50 == 10)
+            {
+                juce::MemoryBlock mb;
+                p->getStateInformation (mb);
+                p->setStateInformation (mb.getData(), (int) mb.getSize());
+            }
+            if (round % 50 == 30)
+                pm.loadFactory (rng.nextInt (pm.getFactoryNames().size()));
+            if (round % 75 == 40)
+                p->switchAB();
+            std::this_thread::sleep_for (std::chrono::milliseconds (1));
+        }
+        running = false;
+        audio.join();
+        check (audioOk.load(), "audio thread and message thread working at once: no crash, output finite");
+    }
+
+    // CPU: time the busy setup (24 bands, half dynamic) in real-time units.
+    {
+        auto p = makeProcessor (48000.0, 256);
+        juce::Random rng (5);
+        busySetup (*p, rng);
+        juce::AudioBuffer<float> buf (2, 256);
+        juce::MidiBuffer midi;
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < 256; ++i)
+                buf.setSample (ch, i, rng.nextFloat() - 0.5f);
+        for (int block = 0; block < 200; ++block)
+            p->processBlock (buf, midi);   // warm up, settle smoothing
+
+        const int blocks = 3750;   // 20 s of audio
+        const auto t0 = std::chrono::steady_clock::now();
+        for (int block = 0; block < blocks; ++block)
+            p->processBlock (buf, midi);
+        const double seconds = std::chrono::duration<double> (std::chrono::steady_clock::now() - t0).count();
+        const double audioSeconds = blocks * 256.0 / 48000.0;
+        const double load = 100.0 * seconds / audioSeconds;
+        std::printf ("       CPU: 24 bands (12 dynamic), stereo 48 kHz: %.2f %% of one core (%.1f ms per second of audio)\n",
+                     load, 1000.0 * seconds / audioSeconds);
+
+        // A single bell, for scale.
+        auto q = makeProcessor (48000.0, 256);
+        setupBell (*q, 6.0f);
+        for (int block = 0; block < 200; ++block)
+            q->processBlock (buf, midi);
+        const auto t1 = std::chrono::steady_clock::now();
+        for (int block = 0; block < blocks; ++block)
+            q->processBlock (buf, midi);
+        const double oneBand = 100.0 * std::chrono::duration<double> (std::chrono::steady_clock::now() - t1).count() / audioSeconds;
+        std::printf ("       CPU: 1 bell, stereo 48 kHz: %.2f %% of one core\n", oneBand);
+       #if defined (NDEBUG)
+        check (load < 10.0, "CPU: fully loaded instance under 10 % of one core (release build)");
+       #else
+        check (load < 100.0, "CPU: runs faster than real time (debug build; release is much faster)");
+       #endif
     }
 
     std::printf ("\n%d checks, %d failures: %s\n", checks, failures, failures == 0 ? "ALL PLUGIN CHECKS PASSED" : "PLUGIN CHECKS FAILED");

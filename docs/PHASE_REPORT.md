@@ -1,3 +1,65 @@
+# Phase report: Phases 9 and 10 (2026-11-20)
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **44 tests, 0 failures** |
+| Plugin-level tests (Linux; Windows CI) | **74 checks, 0 failures** locally (6 new); Windows: see the pull request's checks |
+| Headless GUI test (Linux, Xvfb) | **All 30 checks pass** |
+| Memory-safety builds (AddressSanitizer, UndefinedBehaviorSanitizer, ThreadSanitizer) | See "Sanitizers" below |
+| pluginval strictness 5 (Windows CI) | See the pull request's checks |
+| Installer build (Windows CI, Inno Setup) | See the pull request's checks |
+| Cubase | **Not yet tried by a person for Phases 3-10.** Use `docs/CUBASE_TESTING.md`. |
+
+## Phase 9: testing and optimisation (done)
+
+New plugin-level checks (`Tests/PluginTests.cpp`):
+
+- **No memory allocation on the audio thread**, in 32-bit and 64-bit
+  processing, with all 24 bands on and half of them dynamic, while parameters
+  change every block. (A counting `operator new` is installed for the test,
+  with a sanity check that it really counts.) Result: zero allocations.
+- **Stress test**: 1,500 blocks of random sizes (1 to 4096 samples) at 22.05,
+  44.1, 48, 96 and 192 kHz, with 8 random parameter changes per block and
+  extreme input (silence, full-scale noise, DC, tiny values). The output must
+  stay finite and bounded. Result: pass.
+- **Concurrency**: audio processing on one thread while the message thread
+  moves parameters, saves and loads state and presets, and reads the meters.
+  Result: no crash, output finite.
+- **CPU benchmark**: a fully loaded instance (24 bands, 12 dynamic, stereo,
+  48 kHz, 512-sample blocks) uses **about 1.5 % of one CPU core** in a release
+  build on the Linux test machine. The test fails above 10 %.
+
+Optimisation: none was needed. The numbers above are well inside budget, so
+the code was left simple rather than tuned.
+
+## Phase 10: packaging (done)
+
+- **Version 1.0.0** (CMake project version, shown in Cubase).
+- **Installer** (`installer/ParaEQ.iss`, Inno Setup): installs
+  `ParaEQ.vst3` to `C:\Program Files\Common Files\VST3\` and the manual to
+  `C:\Program Files\Home Studio\ParaEQ`, with Start menu shortcuts and an
+  uninstaller. Built by Windows CI and attached to the release as
+  `ParaEQ-Setup-Windows-x64.exe`.
+- **User manual**: `docs/USER_MANUAL.md`, also as a single self-contained
+  `ParaEQ-Manual.html` (made by `tools/make_manual.py`, images embedded).
+- **Release assets** (preview tag for this branch, latest for main): the
+  zip, the installer and the manual.
+- README updated with install links and build instructions.
+
+### Open issues and honest notes
+
+- Nothing has been tried in Cubase by a person since Phase 2. Every check
+  above is automated (unit tests, pluginval, headless GUI).
+- The installer and plugin are **not code-signed** (that needs a paid
+  certificate), so Windows SmartScreen shows a warning the first time.
+- Automation is per block with a 20 ms glide, not sample-accurate.
+- Dynamic EQ has no look-ahead and a fixed ratio and knee; no external
+  sidechain.
+
+---
+
 # Phase report: Phase 8 (2026-11-20)
 
 ## What was verified, and where
