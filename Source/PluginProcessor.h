@@ -93,6 +93,10 @@ public:
     {
         return (band >= 0 && band < peq::FilterEngine::numBands) ? dynamicGainDb[(size_t) band].load (std::memory_order_relaxed) : 0.0f;
     }
+    /** The Auto Gain correction (dB) for the current curve, whether or not
+        Auto Gain is switched on (for the editor's display). */
+    float getAutoGainCorrectionDb() const noexcept { return autoGainDb.load (std::memory_order_relaxed); }
+
     /** Returns the peak since the last call and resets it (message thread). */
     float takeOutputPeak (int channel) noexcept
     {
@@ -134,6 +138,8 @@ private:
     };
 
     void updateSolo() noexcept;
+    /** Output gain plus the Auto Gain correction when it is on (dB). */
+    double outputGainTargetDb() const noexcept;
 
     juce::UndoManager undoManager { 30000, 100 };
     juce::AudioProcessorValueTreeState apvts;
@@ -145,6 +151,12 @@ private:
     juce::AudioParameterBool* bypassParam = nullptr;
     std::atomic<float>* analogMatch = nullptr;
     std::atomic<float>* gainScale = nullptr;
+    std::atomic<float>* autoGainParam = nullptr;
+    std::atomic<float> autoGainDb { 0.0f };
+    // Settings the Auto Gain correction was last worked out for.
+    std::array<peq::BandParameters, peq::FilterEngine::numBands> autoGainBands {};
+    std::array<peq::ChannelMode, peq::FilterEngine::numBands> autoGainModes {};
+    double autoGainSampleRate = 0.0;
     std::array<BandParams, peq::FilterEngine::numBands> bandParams {};
 
     peq::FilterEngine engine;

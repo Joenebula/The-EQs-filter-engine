@@ -30,6 +30,9 @@ namespace peq::params
     /** Scales every band's gain together, 0-200 % (100 % = as set). Added
         in 1.2; missing from older states and presets, so they get 100 %. */
     inline constexpr const char* gainScale   = "gain_scale";
+    /** Auto Gain: output correction that keeps the level steady while you
+        EQ (see DSP/AutoGain.h). Added in 1.4, default off. */
+    inline constexpr const char* autoGain    = "auto_gain";
 
     inline constexpr int numBands = FilterEngine::numBands;
 

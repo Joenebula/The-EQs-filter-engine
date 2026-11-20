@@ -188,8 +188,8 @@ int main()
     {
         auto p = makeProcessor();
         const auto& params = p->getParameters();
-        const int expected = 5 + peq::params::numBands * 15;
-        check (params.size() == expected, "parameter count = 5 global + 24 bands x 15");
+        const int expected = 6 + peq::params::numBands * 15;
+        check (params.size() == expected, "parameter count = 6 global + 24 bands x 15");
 
         bool allAutomatable = true, idsOk = true, uniqueIds = true;
         juce::StringArray ids;
@@ -254,7 +254,7 @@ int main()
             if (! near (getValue (pa), getValue (pb), 1e-3 * std::max (1.0, std::abs ((double) getValue (pa)))))
                 ++mismatches;
         }
-        check (mismatches == 0, "save then load restores all 365 parameters");
+        check (mismatches == 0, "save then load restores all 366 parameters");
         check (juce::exactlyEqual ((double) b->getState().state.getProperty ("displayRange"), 12.0), "editor settings saved with the state");
 
         auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
@@ -481,6 +481,36 @@ int main()
         setValue (bandParam (*r, 0, BandField::thr), -40.0f);
         setValue (bandParam (*r, 0, BandField::sc), 1.0f);
         check (near (sineGainDb (*r, 48000.0, 1000.0, 512), 0.0, 0.1), "SC band with no sidechain connected stays at its set gain");
+    }
+
+    // Auto Gain (1.4).
+    {
+        auto p = makeProcessor();
+        check (getValue (param (*p, peq::params::autoGain)) < 0.5f, "auto gain: off for a new instance");
+        setupBell (*p, 9.0f);
+        setValue (bandParam (*p, 0, BandField::q), 0.4f);
+        const double off = sineGainDb (*p, 48000.0, 1000.0, 512);
+        const double corr = p->getAutoGainCorrectionDb();
+        setValue (param (*p, peq::params::autoGain), 1.0f);
+        const double on = sineGainDb (*p, 48000.0, 1000.0, 512);
+        std::printf ("       auto gain: +9 dB wide bell, correction %.2f dB; 1 kHz %.2f -> %.2f dB\n", corr, off, on);
+        check (corr < -2.0 && corr > -9.0 && near (on - off, corr, 0.1), "auto gain: wide +9 dB bell is turned down by its correction");
+
+        setValue (bandParam (*p, 0, BandField::gain), -9.0f);
+        sineGainDb (*p, 48000.0, 1000.0, 512);
+        check (p->getAutoGainCorrectionDb() > 2.0f, "auto gain: a cut is turned up");
+
+        // Not part of presets (a listening aid, like bypass).
+        auto& pm = p->getPresets();
+        const auto captured = pm.capture();
+        check (! captured.getChildWithProperty ("id", peq::params::autoGain).isValid(), "auto gain is not saved in presets");
+
+        // Saved with the project.
+        juce::MemoryBlock saved;
+        p->getStateInformation (saved);
+        auto q = makeProcessor();
+        q->setStateInformation (saved.getData(), (int) saved.getSize());
+        check (getValue (param (*q, peq::params::autoGain)) >= 0.5f, "auto gain: saved with the project");
     }
 
     // Corrupt or foreign data is ignored.

@@ -78,6 +78,7 @@ AudioProcessorValueTreeState::ParameterLayout createLayout()
 
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { bypass, version }, "Bypass", false));
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { analogMatch, version }, "Analog Match", true));
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { autoGain, version }, "Auto Gain", false));
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { gainScale, version }, "Gain Scale",
                                                        NormalisableRange<float> (0.0f, 200.0f, 0.1f), 100.0f,
                                                        AudioParameterFloatAttributes()

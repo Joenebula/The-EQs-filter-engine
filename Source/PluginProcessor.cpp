@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "DSP/AutoGain.h"
 #include "PluginEditor.h"
 #include "Parameters.h"
 
@@ -22,6 +23,8 @@ ParaEQAudioProcessor::ParaEQAudioProcessor()
     bypassParam  = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (peq::params::bypass));
     analogMatch  = apvts.getRawParameterValue (peq::params::analogMatch);
     gainScale    = apvts.getRawParameterValue (peq::params::gainScale);
+    autoGainParam = apvts.getRawParameterValue (peq::params::autoGain);
+    jassert (autoGainParam != nullptr);
     jassert (gainScale != nullptr);
     jassert (inputGainDb != nullptr && outputGainDb != nullptr && bypassParam != nullptr && analogMatch != nullptr);
 
@@ -63,6 +66,8 @@ void ParaEQAudioProcessor::updateEngine() noexcept
     const auto& slopes = peq::limits::slopesDbPerOct;
     const bool matched = analogMatch->load() >= 0.5f;
     const double scale = juce::jlimit (0.0, 2.0, (double) gainScale->load() / 100.0);
+    std::array<peq::BandParameters, peq::FilterEngine::numBands> bandsNow {};
+    std::array<peq::ChannelMode, peq::FilterEngine::numBands> modesNow {};
 
     for (int b = 0; b < peq::FilterEngine::numBands; ++b)
     {
@@ -79,6 +84,8 @@ void ParaEQAudioProcessor::updateEngine() noexcept
         const auto mode = (peq::ChannelMode) juce::jlimit (0, (int) peq::ChannelMode::NumModes - 1,
                                                            juce::roundToInt (bp.mode->load()));
         engine.setBand (b, p, mode);
+        bandsNow[(size_t) b] = p;
+        modesNow[(size_t) b] = mode;
 
         peq::DynamicSettings d;
         d.enabled     = bp.dyn->load() >= 0.5f;
@@ -90,6 +97,36 @@ void ParaEQAudioProcessor::updateEngine() noexcept
         d.externalSidechain = bp.sc->load() >= 0.5f;
         engine.setBandDynamics (b, d);
     }
+
+    // Auto Gain: rework the correction only when the curve changed.
+    const double sr = getSampleRate() > 0.0 ? getSampleRate() : 48000.0;
+    auto same = [] (const peq::BandParameters& a, const peq::BandParameters& b)
+    {
+        return a.enabled == b.enabled && a.type == b.type && a.slopeDbPerOct == b.slopeDbPerOct
+            && a.analogMatched == b.analogMatched && juce::exactlyEqual (a.frequencyHz, b.frequencyHz)
+            && juce::exactlyEqual (a.gainDb, b.gainDb) && juce::exactlyEqual (a.q, b.q);
+    };
+    bool changed = ! juce::exactlyEqual (sr, autoGainSampleRate);
+    for (int b = 0; b < peq::FilterEngine::numBands && ! changed; ++b)
+        changed = ! same (bandsNow[(size_t) b], autoGainBands[(size_t) b])
+               || (bandsNow[(size_t) b].enabled && modesNow[(size_t) b] != autoGainModes[(size_t) b]);
+    if (changed)
+    {
+        autoGainBands = bandsNow;
+        autoGainModes = modesNow;
+        autoGainSampleRate = sr;
+        autoGainDb.store ((float) peq::autogain::correctionDb (bandsNow.data(), modesNow.data(),
+                                                               peq::FilterEngine::numBands, sr),
+                          std::memory_order_relaxed);
+    }
+}
+
+double ParaEQAudioProcessor::outputGainTargetDb() const noexcept
+{
+    double db = (double) outputGainDb->load();
+    if (autoGainParam->load() >= 0.5f)
+        db += (double) autoGainDb.load (std::memory_order_relaxed);
+    return db;
 }
 
 void ParaEQAudioProcessor::updateSolo() noexcept
@@ -152,10 +189,11 @@ void ParaEQAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     wet.reset (sampleRate, bypassFadeSeconds);
 
     inGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain ((double) inputGainDb->load()));
-    outGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain ((double) outputGainDb->load()));
     wet.setCurrentAndTargetValue (bypassParam->get() ? 0.0 : 1.0);
 
+    autoGainSampleRate = 0.0;   // force a fresh Auto Gain correction
     updateEngine();
+    outGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (outputGainTargetDb()));
     engine.prepare (sampleRate);
     engine.snapToTargets();
     engineIdle = false;
@@ -238,9 +276,9 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
         }
 
     inGain.setTargetValue (juce::Decibels::decibelsToGain ((double) inputGainDb->load()));
-    outGain.setTargetValue (juce::Decibels::decibelsToGain ((double) outputGainDb->load()));
     wet.setTargetValue (bypassParam->get() ? 0.0 : 1.0);
     updateEngine();
+    outGain.setTargetValue (juce::Decibels::decibelsToGain (outputGainTargetDb()));
 
     // Fully bypassed and settled: leave the audio untouched. The EQ keeps
     // receiving its settings (above) so it comes back in the right state.

@@ -48,6 +48,8 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
     analogButton.setTooltip ("Analog-matched curves: on, bands keep their analogue shape right up to 20 kHz "
                              "(no squeezing near the top at 44.1/48 kHz). Off: classic digital curves, "
                              "as in ParaEQ 1.0. Zero latency either way.");
+    autoGainButton.setClickingTogglesState (true);
+    autoGainButton.setColour (juce::TextButton::buttonOnColourId, peq::theme::accent);
     analyserButton.onClick = [this] { showAnalyserMenu(); };
     analyserButton.setTooltip ("Spectrum analyser settings");
     presetButton.onClick = [this] { showPresetMenu(); };
@@ -58,7 +60,7 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
     nextPresetButton.setTooltip ("Next preset");
     abButton.onClick = [this] { processor.switchAB(); updatePresetBar(); };
     abButton.setTooltip ("A/B compare: switch between two settings (the preset menu can copy one to the other)");
-    for (auto* b : { &undoButton, &redoButton, &bypassButton, &analogButton, &analyserButton,
+    for (auto* b : { &undoButton, &redoButton, &bypassButton, &analogButton, &autoGainButton, &analyserButton,
                      &presetButton, &prevPresetButton, &nextPresetButton, &abButton })
         addAndMakeVisible (*b);
     updatePresetBar();
@@ -99,6 +101,7 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
     outGainAtt = std::make_unique<SliderAttachment> (state, peq::params::outputGain, outGainKnob);
     bypassAtt  = std::make_unique<ButtonAttachment> (state, peq::params::bypass, bypassButton);
     analogAtt  = std::make_unique<ButtonAttachment> (state, peq::params::analogMatch, analogButton);
+    autoGainAtt = std::make_unique<ButtonAttachment> (state, peq::params::autoGain, autoGainButton);
 
     for (auto [label, text] : { std::pair { &inGainLabel, "IN" }, std::pair { &outGainLabel, "OUT" }, std::pair { &rangeLabel, "RANGE" }, std::pair { &scaleLabel, "SCALE" } })
     {
@@ -226,6 +229,19 @@ void ParaEQAudioProcessorEditor::timerCallback()
     undoButton.setEnabled (um.canUndo());
     redoButton.setEnabled (um.canRedo());
     updatePresetBar();
+    updateAutoGainTooltip();
+}
+
+void ParaEQAudioProcessorEditor::updateAutoGainTooltip()
+{
+    const float db = processor.getAutoGainCorrectionDb();
+    const auto value = (db >= 0.0f ? "+" : "") + juce::String (db, 1) + " dB";
+    const auto tip = "Auto Gain: corrects the output so the EQ doesn't make the sound louder or quieter overall, "
+                     "for fair before/after listening. It follows the EQ curve, not the audio, so it never pumps. "
+                     "Correction for the current curve: " + value
+                     + (autoGainButton.getToggleState() ? " (applied)." : " (not applied while off).");
+    if (autoGainButton.getTooltip() != tip)
+        autoGainButton.setTooltip (tip);
 }
 
 //==============================================================================
@@ -513,6 +529,8 @@ void ParaEQAudioProcessorEditor::resized()
     bar.removeFromRight (compact ? 6 : 10);
     outputMeter.setBounds (bar.removeFromRight (14).withSizeKeepingCentre (14, juce::jmin (bar.getHeight() + 6, 34)));
     bar.removeFromRight (compact ? 6 : 10);
+    autoGainButton.setBounds (bar.removeFromRight (compact ? 42 : 48));
+    bar.removeFromRight (compact ? 2 : 6);
     const int knobW = compact ? 30 : (getWidth() < 1180 ? 88 : 100);   // compact: knob only, value on hover/drag
     for (auto* k : { &inGainKnob, &outGainKnob })
         k->setTextBoxStyle (compact ? juce::Slider::NoTextBox : juce::Slider::TextBoxRight, false, 58, 18);
