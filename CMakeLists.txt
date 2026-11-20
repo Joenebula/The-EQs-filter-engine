@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(ParametricEQ VERSION 0.1.0 LANGUAGES C CXX)
+project(ParametricEQ VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,6 +16,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # ---------------------------------------------------------------------------
 option(PEQ_BUILD_PLUGIN "Build the VST3 plugin" ON)
 option(PEQ_BUILD_TESTS  "Build the DSP unit tests" ON)
+option(PEQ_BUILD_GUI_TESTS "Build the headless GUI test (needs a display; development only)" OFF)
 option(PEQ_COPY_AFTER_BUILD "Copy the VST3 to the system plugin folder after building" OFF)
 set(PEQ_JUCE_DIR "" CACHE PATH "Path to a local JUCE checkout (optional)")
 set(PEQ_JUCE_TAG "8.0.12" CACHE STRING "JUCE git tag to download when PEQ_JUCE_DIR is empty")
@@ -35,6 +36,12 @@ add_library(peq_dsp STATIC
     Source/DSP/FilterDesign.cpp
     Source/DSP/EQBand.h
     Source/DSP/EQBand.cpp
+    Source/DSP/FilterEngine.h
+    Source/DSP/FilterEngine.cpp
+    Source/DSP/SampleFifo.h
+    Source/DSP/Dynamics.h
+    Source/DSP/SpectrumAnalyser.h
+    Source/DSP/SpectrumAnalyser.cpp
 )
 target_include_directories(peq_dsp PUBLIC Source)
 set_target_properties(peq_dsp PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -45,8 +52,13 @@ if(PEQ_BUILD_TESTS)
         Tests/TestFramework.h
         Tests/TestMain.cpp
         Tests/DSPTests.cpp
+        Tests/EngineTests.cpp
+        Tests/GraphTests.cpp
+        Tests/AnalyserTests.cpp
+        Tests/DynamicsTests.cpp
     )
-    target_link_libraries(peq_tests PRIVATE peq_dsp)
+    find_package(Threads REQUIRED)
+    target_link_libraries(peq_tests PRIVATE peq_dsp Threads::Threads)
     add_test(NAME peq_dsp_tests COMMAND peq_tests)
 endif()
 

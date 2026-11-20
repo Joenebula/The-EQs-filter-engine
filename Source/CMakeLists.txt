@@ -17,7 +17,7 @@ juce_add_plugin(ParaEQ
     NEEDS_MIDI_INPUT             FALSE
     NEEDS_MIDI_OUTPUT            FALSE
     IS_MIDI_EFFECT               FALSE
-    EDITOR_WANTS_KEYBOARD_FOCUS  FALSE
+    EDITOR_WANTS_KEYBOARD_FOCUS  TRUE
     COPY_PLUGIN_AFTER_BUILD      ${PEQ_COPY_AFTER_BUILD})
 
 target_sources(ParaEQ PRIVATE
@@ -26,7 +26,18 @@ target_sources(ParaEQ PRIVATE
     PluginEditor.h
     PluginEditor.cpp
     Parameters.h
-    Parameters.cpp)
+    Parameters.cpp
+    PresetManager.h
+    PresetManager.cpp
+    GUI/GraphMath.h
+    GUI/Theme.h
+    GUI/BandParams.h
+    GUI/ParaLookAndFeel.h
+    GUI/EQGraph.h
+    GUI/EQGraph.cpp
+    GUI/BandPanel.h
+    GUI/BandPanel.cpp
+    GUI/OutputMeter.h)
 
 target_compile_definitions(ParaEQ PUBLIC
     JUCE_WEB_BROWSER=0
@@ -42,3 +53,24 @@ target_link_libraries(ParaEQ
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# Headless GUI test: drives the editor through its public actions and saves
+# screenshots. Development only (needs a display, e.g. Xvfb on Linux).
+if(PEQ_BUILD_GUI_TESTS)
+    add_executable(peq_gui_tests ../Tests/GuiTests.cpp)
+    target_link_libraries(peq_gui_tests PRIVATE ParaEQ)
+    # Compile against the same JUCE headers and settings as the plugin code.
+    target_include_directories(peq_gui_tests PRIVATE $<TARGET_PROPERTY:ParaEQ,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(peq_gui_tests PRIVATE $<TARGET_PROPERTY:ParaEQ,COMPILE_DEFINITIONS>)
+endif()
+
+# Plugin-level tests: the real processor as a host sees it (parameters,
+# state, automation, sample rates, bypass, layouts, instances). No editor or
+# display needed, so they run in CI with the DSP tests.
+if(PEQ_BUILD_TESTS)
+    add_executable(peq_plugin_tests ../Tests/PluginTests.cpp)
+    target_link_libraries(peq_plugin_tests PRIVATE ParaEQ)
+    target_include_directories(peq_plugin_tests PRIVATE $<TARGET_PROPERTY:ParaEQ,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(peq_plugin_tests PRIVATE $<TARGET_PROPERTY:ParaEQ,COMPILE_DEFINITIONS>)
+    add_test(NAME peq_plugin_tests COMMAND peq_plugin_tests)
+endif()

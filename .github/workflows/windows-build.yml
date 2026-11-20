@@ -5,9 +5,16 @@ on:
   pull_request:
   workflow_dispatch:
 
+# contents: write lets the build publish the plain download link (a release).
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-2022
+    concurrency:
+      group: build-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
@@ -18,10 +25,76 @@ jobs:
         run: cmake --build build --config Release --parallel
 
       - name: DSP tests
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure -V
 
+      - name: Validate the VST3 with pluginval
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip -OutFile pluginval.zip
+          Expand-Archive pluginval.zip -DestinationPath pluginval
+          $p = Start-Process -FilePath ./pluginval/pluginval.exe -Wait -PassThru -NoNewWindow -ArgumentList @(
+            '--strictness-level', '5', '--output-dir', 'pluginval-logs',
+            '--validate', 'build/Source/ParaEQ_artefacts/Release/VST3/ParaEQ.vst3')
+          Write-Host "pluginval exit code: $($p.ExitCode)"
+          Get-ChildItem pluginval-logs -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_.FullName -Tail 30 }
+          exit $p.ExitCode
+
+      - name: Upload pluginval log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pluginval-log
+          path: pluginval-logs
+          if-no-files-found: ignore
+
+      # Windows installer (Inno Setup, preinstalled on GitHub's Windows images).
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress -y
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          $version = (Select-String -Path CMakeLists.txt -Pattern 'project\(ParametricEQ VERSION ([0-9.]+)').Matches[0].Groups[1].Value
+          & $iscc "/DAppVersion=$version" "/DVST3Dir=$PWD\build\Source\ParaEQ_artefacts\Release\VST3" "/DManual=$PWD\docs\ParaEQ-Manual.html" "/DOutDir=$PWD\build\installer" installer\ParaEQ.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-ChildItem build\installer
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ParaEQ-Setup-Windows-x64
+          path: build/installer/ParaEQ-Setup-Windows-x64.exe
+
+      # The folder above ParaEQ.vst3 is uploaded, so the downloaded zip
+      # unpacks straight to a ready-to-install ParaEQ.vst3 folder.
       - name: Upload VST3
         uses: actions/upload-artifact@v4
         with:
           name: ParaEQ-VST3-Windows-x64
-          path: build/Source/ParaEQ_artefacts/Release/VST3/ParaEQ.vst3
+          path: build/Source/ParaEQ_artefacts/Release/VST3/
+
+      # A plain download link that needs no GitHub sign-in:
+      #   main            -> release "latest"   (stable builds)
+      #   any other branch-> release "preview"  (builds awaiting merge)
+      # Each push replaces the previous file, so the link never changes.
+      - name: Publish download link (GitHub release)
+        if: github.event_name == 'push'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Compress-Archive -Path build/Source/ParaEQ_artefacts/Release/VST3/ParaEQ.vst3 -DestinationPath ParaEQ-VST3-Windows-x64.zip
+          if ("${{ github.ref_name }}" -eq "main") {
+            $tag = "latest"; $title = "ParaEQ latest build"; $pre = @()
+          } else {
+            $tag = "preview"; $title = "ParaEQ preview build (not merged yet)"; $pre = @("--prerelease")
+          }
+          Copy-Item build/installer/ParaEQ-Setup-Windows-x64.exe .
+          Copy-Item docs/ParaEQ-Manual.html .
+          $notes = "Built from ${{ github.ref_name }} at ${{ github.sha }}.`n`nEasiest: run ParaEQ-Setup-Windows-x64.exe (close Cubase first). Or unzip ParaEQ-VST3-Windows-x64.zip and copy the ParaEQ.vst3 folder into C:\Program Files\Common Files\VST3\. Then rescan in Cubase (Studio > VST Plug-in Manager). ParaEQ-Manual.html is the user manual."
+          gh release delete $tag --yes --cleanup-tag 2>$null
+          $global:LASTEXITCODE = 0
+          gh release create $tag ParaEQ-VST3-Windows-x64.zip ParaEQ-Setup-Windows-x64.exe ParaEQ-Manual.html --target ${{ github.sha }} --title $title --notes $notes @pre
+          if ($LASTEXITCODE -ne 0) { exit 1 }
