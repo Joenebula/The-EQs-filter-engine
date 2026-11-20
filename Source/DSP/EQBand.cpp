@@ -11,6 +11,11 @@ namespace
     constexpr double logFreqEpsilon = 1.0e-6;  // ~0.0001 % frequency
     constexpr double gainEpsilon    = 1.0e-5;  // dB
     constexpr double logQEpsilon    = 1.0e-6;
+
+    /** S-shaped fade (smoothstep): starts and ends with zero slope, so a fade
+        has no corners and adds far less high-frequency splatter than a
+        straight line. */
+    inline double fadeCurve (double m) noexcept { return m * m * (3.0 - 2.0 * m); }
 }
 
 bool EQBand::Smoothed::settled() const noexcept
@@ -272,11 +277,11 @@ void EQBand::processBlockSegment (double* const* channels, int firstChannel, int
                 {
                     m = m < mixTarget ? std::min (mixTarget, m + mixStep)
                                       : std::max (mixTarget, m - mixStep);
-                    data[i] = dry + m * (y - dry);
+                    data[i] = dry + fadeCurve (m) * (y - dry);
                 }
                 else
                 {
-                    data[i] = m >= 1.0 ? y : dry + m * (y - dry);
+                    data[i] = m >= 1.0 ? y : dry + fadeCurve (m) * (y - dry);
                 }
             }
 

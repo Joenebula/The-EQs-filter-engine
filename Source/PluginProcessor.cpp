@@ -18,6 +18,46 @@ ParaEQAudioProcessor::ParaEQAudioProcessor()
     outputGainDb = apvts.getRawParameterValue (peq::params::outputGain);
     bypassParam  = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (peq::params::bypass));
     jassert (inputGainDb != nullptr && outputGainDb != nullptr && bypassParam != nullptr);
+
+    using peq::params::BandField;
+    for (int b = 0; b < peq::FilterEngine::numBands; ++b)
+    {
+        auto get = [this, b] (BandField f)
+        {
+            auto* v = apvts.getRawParameterValue (peq::params::bandID (b, f));
+            jassert (v != nullptr);
+            return v;
+        };
+        auto& bp = bandParams[(size_t) b];
+        bp.on    = get (BandField::on);
+        bp.type  = get (BandField::type);
+        bp.freq  = get (BandField::freq);
+        bp.gain  = get (BandField::gain);
+        bp.q     = get (BandField::q);
+        bp.slope = get (BandField::slope);
+        bp.mode  = get (BandField::mode);
+    }
+}
+
+void ParaEQAudioProcessor::updateEngine() noexcept
+{
+    const auto& slopes = peq::limits::slopesDbPerOct;
+
+    for (int b = 0; b < peq::FilterEngine::numBands; ++b)
+    {
+        const auto& bp = bandParams[(size_t) b];
+        peq::BandParameters p;
+        p.enabled     = bp.on->load() >= 0.5f;
+        p.type        = (peq::FilterType) juce::jlimit (0, (int) peq::FilterType::NumTypes - 1,
+                                                        juce::roundToInt (bp.type->load()));
+        p.frequencyHz = (double) bp.freq->load();
+        p.gainDb      = (double) bp.gain->load();
+        p.q           = (double) bp.q->load();
+        p.slopeDbPerOct = slopes[(size_t) juce::jlimit (0, (int) slopes.size() - 1, juce::roundToInt (bp.slope->load()))];
+        const auto mode = (peq::ChannelMode) juce::jlimit (0, (int) peq::ChannelMode::NumModes - 1,
+                                                           juce::roundToInt (bp.mode->load()));
+        engine.setBand (b, p, mode);
+    }
 }
 
 bool ParaEQAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -44,6 +84,11 @@ void ParaEQAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     inGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain ((double) inputGainDb->load()));
     outGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain ((double) outputGainDb->load()));
     wet.setCurrentAndTargetValue (bypassParam->get() ? 0.0 : 1.0);
+
+    updateEngine();
+    engine.prepare (sampleRate);
+    engine.snapToTargets();
+    engineIdle = false;
 }
 
 void ParaEQAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -110,33 +155,51 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
     inGain.setTargetValue (juce::Decibels::decibelsToGain ((double) inputGainDb->load()));
     outGain.setTargetValue (juce::Decibels::decibelsToGain ((double) outputGainDb->load()));
     wet.setTargetValue (bypassParam->get() ? 0.0 : 1.0);
+    updateEngine();
 
-    // Fully bypassed and settled: leave the audio untouched.
+    // Fully bypassed and settled: leave the audio untouched. The EQ keeps
+    // receiving its settings (above) so it comes back in the right state.
     if (! wet.isSmoothing() && wet.getTargetValue() <= 0.0)
     {
         inGain.skip (numSamples);
         outGain.skip (numSamples);
+        engineIdle = true;
         return;
+    }
+
+    if (engineIdle)
+    {
+        // Leaving bypass: start the bands exactly at their current settings
+        // with clean filter memory (the bypass crossfade hides the restart).
+        engine.snapToTargets();
+        engineIdle = false;
     }
 
     for (int ch = 0; ch < numChannels; ++ch)
         dryBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
 
-    // Per-sample smoothed gain, identical on every channel.
     double* const* data = buffer.getArrayOfWritePointers();
+
+    // 1. Input gain (per-sample smoothed, identical on every channel).
     for (int i = 0; i < numSamples; ++i)
     {
-        const double gIn  = inGain.getNextValue();
-        // --- EQ processing goes here in Phase 3 (operates between the gains) ---
-        const double gOut = outGain.getNextValue();
-        const double w    = wet.getNextValue();
-        const double g    = gIn * gOut;
+        const double g = inGain.getNextValue();
+        for (int ch = 0; ch < numChannels; ++ch)
+            data[ch][i] *= g;
+    }
 
+    // 2. The EQ bands.
+    engine.process (data, numChannels, numSamples);
+
+    // 3. Output gain and the bypass crossfade.
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const double g = outGain.getNextValue();
+        const double w = wet.getNextValue();
         for (int ch = 0; ch < numChannels; ++ch)
         {
             const double dry = dryBuffer.getSample (ch, i);
-            const double processed = data[ch][i] * g;
-            data[ch][i] = dry + w * (processed - dry);
+            data[ch][i] = dry + w * (data[ch][i] * g - dry);
         }
     }
 }

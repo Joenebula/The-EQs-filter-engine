@@ -35,6 +35,8 @@ add_library(peq_dsp STATIC
     Source/DSP/FilterDesign.cpp
     Source/DSP/EQBand.h
     Source/DSP/EQBand.cpp
+    Source/DSP/FilterEngine.h
+    Source/DSP/FilterEngine.cpp
 )
 target_include_directories(peq_dsp PUBLIC Source)
 set_target_properties(peq_dsp PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -45,6 +47,7 @@ if(PEQ_BUILD_TESTS)
         Tests/TestFramework.h
         Tests/TestMain.cpp
         Tests/DSPTests.cpp
+        Tests/EngineTests.cpp
     )
     target_link_libraries(peq_tests PRIVATE peq_dsp)
     add_test(NAME peq_dsp_tests COMMAND peq_tests)
