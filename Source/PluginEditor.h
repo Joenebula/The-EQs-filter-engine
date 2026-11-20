@@ -61,11 +61,11 @@ private:
     juce::TextButton presetButton, prevPresetButton { "<" }, nextPresetButton { ">" }, abButton { "A" };
     std::unique_ptr<juce::FileChooser> fileChooser;
     juce::ComboBox rangeBox;
-    juce::Slider inGainKnob, outGainKnob;
-    juce::Label inGainLabel, outGainLabel, rangeLabel;
+    juce::Slider inGainKnob, outGainKnob, scaleKnob;
+    juce::Label inGainLabel, outGainLabel, rangeLabel, scaleLabel;
     peq::gui::OutputMeter outputMeter;
     juce::TooltipWindow tooltips { this, 600 };
-    std::unique_ptr<SliderAttachment> inGainAtt, outGainAtt;
+    std::unique_ptr<SliderAttachment> inGainAtt, outGainAtt, scaleAtt;
     std::unique_ptr<ButtonAttachment> bypassAtt, analogAtt;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParaEQAudioProcessorEditor)

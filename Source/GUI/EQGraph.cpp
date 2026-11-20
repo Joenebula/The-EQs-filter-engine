@@ -30,6 +30,7 @@ EQGraph::EQGraph (ParaEQAudioProcessor& p, AllBands& b)
     : processor (p), bands (b)
 {
     analogMatchParam = processor.getState().getParameter (params::analogMatch);
+    gainScaleParam   = processor.getState().getParameter (params::gainScale);
     setOpaque (true);
     setWantsKeyboardFocus (false);
     bandCurves.resize ((size_t) FilterEngine::numBands);
@@ -67,7 +68,7 @@ juce::Point<float> EQGraph::nodePosition (int band) const
 {
     const auto& r = bands[(size_t) band];
     const double hz = (double) BandParamRefs::get (r.freq);
-    const double db = typeHasGain (r.filterType()) ? (double) BandParamRefs::get (r.gain) : 0.0;
+    const double db = typeHasGain (r.filterType()) ? (double) BandParamRefs::get (r.gain) * gainScaleFactor() : 0.0;
     const auto plot = plotArea();
     return { xForFreq (hz), juce::jlimit (plot.getY(), plot.getBottom(), yForDb (db)) };
 }
@@ -239,6 +240,57 @@ void EQGraph::adjustQ (int band, double wheelSteps)
     refreshFromParameters (true);
 }
 
+double EQGraph::gainScaleFactor() const noexcept
+{
+    return gainScaleParam != nullptr ? juce::jlimit (0.0, 2.0, (double) gainScaleParam->convertFrom0to1 (gainScaleParam->getValue()) / 100.0)
+                                     : 1.0;
+}
+
+void EQGraph::nudgeBand (int band, double octaves, double db)
+{
+    if (band < 0 || band >= FilterEngine::numBands || ! bands[(size_t) band].isUsed())
+        return;
+    auto& r = bands[(size_t) band];
+
+    const auto now = juce::Time::getMillisecondCounter();
+    if (now - lastNudgeTime > 600)
+        processor.beginUndoStep ("Nudge band");
+    lastNudgeTime = now;
+
+    if (! juce::exactlyEqual (octaves, 0.0))
+    {
+        const double hz = (double) BandParamRefs::get (r.freq) * std::pow (2.0, octaves);
+        BandParamRefs::setWithGesture (r.freq, (float) juce::jlimit (limits::minFrequency, limits::maxFrequency, hz));
+    }
+    if (! juce::exactlyEqual (db, 0.0) && typeHasGain (r.filterType()))
+    {
+        const double g = std::round (((double) BandParamRefs::get (r.gain) + db) * 10.0) / 10.0;
+        BandParamRefs::setWithGesture (r.gain, (float) juce::jlimit (limits::minGainDb, limits::maxGainDb, g));
+    }
+    processor.flushUndo();
+    refreshFromParameters (true);
+    repaint();
+}
+
+juce::String EQGraph::cursorReadout (juce::Point<float> position) const
+{
+    const auto plot = plotArea();
+    const double hz = graph::xToFreq ((double) (position.x - plot.getX()), (double) plot.getWidth());
+    const double db = graph::yToDb ((double) (position.y - plot.getY()), (double) plot.getHeight(), rangeDb);
+
+    static const char* names[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    const double midi = 69.0 + 12.0 * std::log2 (hz / 440.0);
+    const int nearest = (int) std::lround (midi);
+    const int cents = (int) std::lround ((midi - nearest) * 100.0);
+    const int octave = nearest / 12 - 1;
+    const juce::String note = juce::String (names[((nearest % 12) + 12) % 12]) + juce::String (octave)
+                            + (cents == 0 ? juce::String() : (cents > 0 ? " +" : " ") + juce::String (cents) + "c");
+
+    const juce::String freq = hz >= 1000.0 ? juce::String (hz / 1000.0, hz >= 10000.0 ? 1 : 2) + " kHz"
+                                           : juce::String (hz, hz >= 100.0 ? 0 : 1) + " Hz";
+    return freq + "   " + note + "   " + (db >= 0.0 ? "+" : "") + juce::String (db, 1) + " dB";
+}
+
 void EQGraph::toggleSolo (int band)
 {
     processor.setSoloBand (processor.getSoloBand() == band ? -1 : band);
@@ -340,7 +392,10 @@ bool EQGraph::refreshFromParameters (bool force)
         for (auto* p : { r.used, r.on, r.type, r.freq, r.gain, r.q, r.slope, r.mode, r.dyn, r.range })
             values.push_back (p->getValue());
         if (b == 0)
+        {
             values.push_back (analogMatchParam != nullptr ? analogMatchParam->getValue() : 0.0f);
+            values.push_back (gainScaleParam != nullptr ? gainScaleParam->getValue() : 0.5f);
+        }
 
         // Live dynamic gain, in 0.1 dB steps so the curves are only redrawn
         // when the change is visible.
@@ -400,6 +455,7 @@ void EQGraph::recomputeCurves()
         }
 
         auto params = r.toBandParameters();
+        params.gainDb *= gainScaleFactor();
         compute (params, curve);
 
         const float dynGain = liveDynGain[(size_t) b];
@@ -447,6 +503,13 @@ void EQGraph::paint (juce::Graphics& g)
     const int readoutBand = dragBand >= 0 ? dragBand : (hovered >= 0 ? hovered : selected);
     if (readoutBand >= 0 && bands[(size_t) readoutBand].isUsed())
         drawReadout (g, readoutBand);
+
+    if (cursor.x >= 0.0f && dragBand < 0)
+    {
+        g.setColour (theme::textDim.brighter (0.2f));
+        g.setFont (theme::font (12.0f));
+        g.drawText (cursorReadout (cursor), plot.reduced (10.0f, 6.0f), juce::Justification::bottomLeft);
+    }
 
     if (processor.getSoloBand() >= 0)
     {
@@ -837,6 +900,12 @@ void EQGraph::drawReadout (juce::Graphics& g, int band) const
 void EQGraph::mouseMove (const juce::MouseEvent& e)
 {
     const int h = bandAt (e.position);
+    const auto newCursor = (h < 0 && plotArea().contains (e.position)) ? e.position : juce::Point<float> { -1.0f, -1.0f };
+    if (newCursor != cursor)
+    {
+        cursor = newCursor;
+        repaint();
+    }
     if (h != hovered)
     {
         hovered = h;
@@ -847,6 +916,11 @@ void EQGraph::mouseMove (const juce::MouseEvent& e)
 
 void EQGraph::mouseExit (const juce::MouseEvent&)
 {
+    if (cursor.x >= 0.0f)
+    {
+        cursor = { -1.0f, -1.0f };
+        repaint();
+    }
     if (hovered >= 0)
     {
         hovered = -1;
@@ -854,7 +928,7 @@ void EQGraph::mouseExit (const juce::MouseEvent&)
     }
 }
 
-void EQGraph::beginDrag (int band, juce::Point<float> mousePos)
+void EQGraph::beginDrag (int band, juce::Point<float> mousePos, bool adjustQ)
 {
     endDrag();
     auto& r = bands[(size_t) band];
@@ -862,12 +936,16 @@ void EQGraph::beginDrag (int band, juce::Point<float> mousePos)
     dragStartMouse = mousePos;
     dragStartLogFreq = std::log ((double) BandParamRefs::get (r.freq));
     dragStartGain = (double) BandParamRefs::get (r.gain);
-    dragMovesGain = typeHasGain (r.filterType());
+    dragStartLogQ = std::log ((double) BandParamRefs::get (r.q));
+    dragMovesQ = adjustQ;                       // Alt-drag: up/down changes Q
+    dragMovesGain = ! adjustQ && typeHasGain (r.filterType());
 
-    processor.beginUndoStep ("Move band");
+    processor.beginUndoStep (adjustQ ? "Change Q" : "Move band");
     r.freq->beginChangeGesture();
     if (dragMovesGain)
         r.gain->beginChangeGesture();
+    if (dragMovesQ)
+        r.q->beginChangeGesture();
 }
 
 void EQGraph::endDrag()
@@ -878,6 +956,8 @@ void EQGraph::endDrag()
     r.freq->endChangeGesture();
     if (dragMovesGain)
         r.gain->endChangeGesture();
+    if (dragMovesQ)
+        r.q->endChangeGesture();
     dragBand = -1;
     processor.flushUndo();
 }
@@ -899,7 +979,7 @@ void EQGraph::mouseDown (const juce::MouseEvent& e)
     if (band >= 0)
     {
         setSelectedBand (band);
-        beginDrag (band, e.position);
+        beginDrag (band, e.position, e.mods.isAltDown());
         return;
     }
 
@@ -929,9 +1009,17 @@ void EQGraph::mouseDrag (const juce::MouseEvent& e)
     // Vertical: gain (only for types that have one).
     if (dragMovesGain)
     {
-        const double dbPerPixel = 2.0 * rangeDb / (double) plot.getHeight();
+        // The node is drawn at gain x Gain Scale, so follow the mouse in that
+        // scaled space (with a floor so a tiny scale doesn't make it jumpy).
+        const double dbPerPixel = 2.0 * rangeDb / (double) plot.getHeight() / std::max (gainScaleFactor(), 0.25);
         const double newDb = dragStartGain - dbPerPixel * (double) delta.y;
         BandParamRefs::set (r.gain, (float) juce::jlimit (limits::minGainDb, limits::maxGainDb, newDb));
+    }
+    if (dragMovesQ)
+    {
+        // Up = narrower. 100 pixels = a factor of 2.
+        const double newQ = std::exp (dragStartLogQ - std::log (2.0) * (double) delta.y / 100.0);
+        BandParamRefs::set (r.q, (float) juce::jlimit (limits::minQ, limits::maxQ, newQ));
     }
 
     refreshFromParameters (true);

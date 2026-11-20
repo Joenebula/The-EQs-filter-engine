@@ -142,6 +142,7 @@ private:
     std::atomic<float>* outputGainDb = nullptr;
     juce::AudioParameterBool* bypassParam = nullptr;
     std::atomic<float>* analogMatch = nullptr;
+    std::atomic<float>* gainScale = nullptr;
     std::array<BandParams, peq::FilterEngine::numBands> bandParams {};
 
     peq::FilterEngine engine;

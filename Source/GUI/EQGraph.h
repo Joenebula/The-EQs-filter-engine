@@ -74,6 +74,14 @@ public:
     void deleteBand (int band);
     void resetGain (int band);
     void adjustQ (int band, double wheelSteps);
+    /** Moves a band by a number of octaves and dB (arrow keys). One undo step
+        per burst of presses. */
+    void nudgeBand (int band, double octaves, double db);
+    /** Gain Scale as a factor (1 = 100 %). */
+    double gainScaleFactor() const noexcept;
+    /** Text shown for the mouse position on an empty part of the graph,
+        e.g. "1.00 kHz  C6 -14c  +3.0 dB". Public for tests. */
+    juce::String cursorReadout (juce::Point<float> position) const;
     void toggleSolo (int band);
 
     /** Copies a band's settings to the system clipboard. */
@@ -122,7 +130,7 @@ private:
 
     int bandAt (juce::Point<float> position) const;
     void showBandMenu (int band);
-    void beginDrag (int band, juce::Point<float> mousePos);
+    void beginDrag (int band, juce::Point<float> mousePos, bool adjustQ = false);
     void endDrag();
 
     void drawGrid (juce::Graphics&, juce::Rectangle<float> plot) const;
@@ -137,10 +145,12 @@ private:
 
     ParaEQAudioProcessor& processor;
     juce::RangedAudioParameter* analogMatchParam = nullptr;
+    juce::RangedAudioParameter* gainScaleParam = nullptr;
     AllBands& bands;
 
     int selected = -1;
     int hovered = -1;
+    juce::Point<float> cursor { -1.0f, -1.0f }; // mouse over empty graph, or (-1,-1)
     double rangeDb = 18.0;
 
     // Snapshot of the parameter values the curves were computed from.
@@ -160,8 +170,9 @@ private:
     // Drag state.
     int dragBand = -1;
     juce::Point<float> dragStartMouse;
-    double dragStartLogFreq = 0.0, dragStartGain = 0.0;
-    bool dragMovesGain = false;
+    double dragStartLogFreq = 0.0, dragStartGain = 0.0, dragStartLogQ = 0.0;
+    bool dragMovesGain = false, dragMovesQ = false;
+    juce::uint32 lastNudgeTime = 0;
     juce::uint32 lastWheelTime = 0;
 
     // Spectrum analyser.

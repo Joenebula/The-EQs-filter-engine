@@ -1,3 +1,32 @@
+# Version 1.2: Gain Scale and faster editing (2026-11-20)
+
+## What changed
+
+- **Gain Scale** (new automatable parameter `gain_scale`, 0 to 200 %, knob
+  next to IN): multiplies every band's gain. The curves and nodes show the
+  scaled result; dragging a node follows the mouse in that scaled view.
+  Dynamic range is not scaled. Saved in presets; projects and presets from
+  before it load at 100 % (same sound).
+- **Alt-drag** a node: up/down changes Q (100 px = a factor of 2), gain left
+  alone. One undo step.
+- **Arrow keys** nudge the selected band: a semitone or 0.5 dB (Shift: a
+  quarter semitone or 0.1 dB). A burst of presses is one undo step.
+- **Cursor readout**: hovering an empty spot shows frequency, note (with
+  cents) and level, e.g. "440 Hz   A4   +3.0 dB".
+- Top bar tightened so the preset name still fits at 1040 px and 760 px.
+- Version 1.2.0.
+
+## Verified (Linux; Windows: see the pull request's checks)
+
+| Check | Result |
+|---|---|
+| DSP tests | 52 tests, 0 failures (unchanged) |
+| Plugin tests | **82 checks, 0 failures** (3 new: +6 dB bell measures +3 / 0 / +12 dB at 50 / 0 / 200 %; new instance at 100 %; old project loads at 100 %) |
+| GUI tests (Xvfb) | **All pass** (8 new: arrow keys, Shift step, grouped undo, node at scaled gain, Alt-drag doubles Q without touching gain, cursor readout) |
+| Cubase | **Not tried by a person yet.** |
+
+---
+
 # Version 1.1: analog-matched curves (2026-11-20)
 
 ## Why

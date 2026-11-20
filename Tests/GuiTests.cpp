@@ -256,6 +256,66 @@ int main (int argc, char** argv)
         outDir.getChildFile ("presets").deleteRecursively();
     }
 
+    // Workflow (1.2): arrow-key nudging, Gain Scale, Alt-drag for Q, cursor readout.
+    {
+        editor->setSize (1040, 640);
+        auto& pm = proc->getPresets();
+        pm.loadFactory (0); // flat
+        const int b = graph.addBandAt (pointFor (graph, 1000.0, 4.0));
+        graph.setSelectedBand (b);
+        const float f0 = value (*proc, b, BandField::freq);
+        const float g0 = value (*proc, b, BandField::gain);
+
+        editor->keyPressed (juce::KeyPress (juce::KeyPress::rightKey));
+        editor->keyPressed (juce::KeyPress (juce::KeyPress::upKey));
+        check (near (value (*proc, b, BandField::freq), f0 * std::pow (2.0, 1.0 / 12.0), f0 * 0.002),
+               "right arrow moves the band up a semitone");
+        check (near (value (*proc, b, BandField::gain), std::round ((g0 + 0.5) * 10.0) / 10.0, 0.01), "up arrow adds 0.5 dB");
+        editor->keyPressed (juce::KeyPress (juce::KeyPress::leftKey, juce::ModifierKeys::shiftModifier, 0));
+        check (near (value (*proc, b, BandField::freq), f0 * std::pow (2.0, 1.0 / 12.0 - 1.0 / 48.0), f0 * 0.002),
+               "shift+left is a finer step");
+        auto& um2 = proc->getUndoManager();
+        proc->flushUndo();
+        um2.undo();
+        check (near (value (*proc, b, BandField::freq), f0, f0 * 0.002) && near (value (*proc, b, BandField::gain), g0, 0.01),
+               "one undo takes back a burst of arrow-key nudges");
+
+        // Gain Scale: the node sits at gain x scale.
+        auto* scale = proc->getState().getParameter (peq::params::gainScale);
+        scale->setValueNotifyingHost (scale->convertTo0to1 (50.0f));
+        graph.pollParameters();
+        const float yHalf = graph.nodePosition (b).y;
+        check (near (yHalf, pointFor (graph, 1000.0, value (*proc, b, BandField::gain) * 0.5).y, 1.0),
+               "Gain Scale 50 %: node drawn at half its gain");
+        graph.pollParameters();
+        save (*editor, outDir.getChildFile ("09-gain-scale.png"));
+        scale->setValueNotifyingHost (scale->convertTo0to1 (100.0f));
+        graph.pollParameters();
+
+        // Alt-drag up changes Q, not gain.
+        const float q0 = value (*proc, b, BandField::q);
+        const float gBefore = value (*proc, b, BandField::gain);
+        auto src = juce::Desktop::getInstance().getMainMouseSource();
+        const auto start = graph.nodePosition (b);
+        auto makeEvent = [&] (juce::Point<float> pos, juce::ModifierKeys mods)
+        {
+            return juce::MouseEvent (src, pos, mods, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &graph, &graph,
+                                     juce::Time::getCurrentTime(), start, juce::Time::getCurrentTime(), 1, true);
+        };
+        const auto alt = juce::ModifierKeys (juce::ModifierKeys::altModifier | juce::ModifierKeys::leftButtonModifier);
+        graph.mouseDown (makeEvent (start, alt));
+        graph.mouseDrag (makeEvent (start.translated (0.0f, -100.0f), alt));
+        graph.mouseUp (makeEvent (start.translated (0.0f, -100.0f), alt));
+        check (near (value (*proc, b, BandField::q), q0 * 2.0, q0 * 0.02), "Alt-drag up 100 px doubles Q");
+        check (near (value (*proc, b, BandField::gain), gBefore, 1e-4), "Alt-drag leaves gain alone");
+
+        // Cursor readout.
+        const auto text = graph.cursorReadout (pointFor (graph, 440.0, 3.0));
+        check (text.contains ("440 Hz") && text.contains ("A4") && text.contains ("+3.0 dB"),
+               "cursor readout shows frequency, note and level");
+        std::printf ("       cursor readout at 440 Hz / +3 dB: \"%s\"\n", text.toRawUTF8());
+    }
+
     base.reset();
     std::printf ("\n%s (%d failures)\n", failures == 0 ? "ALL GUI CHECKS PASSED" : "GUI CHECKS FAILED", failures);
     return failures == 0 ? 0 : 1;

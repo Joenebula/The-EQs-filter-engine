@@ -180,8 +180,8 @@ int main()
     {
         auto p = makeProcessor();
         const auto& params = p->getParameters();
-        const int expected = 4 + peq::params::numBands * 13;
-        check (params.size() == expected, "parameter count = 4 global + 24 bands x 13");
+        const int expected = 5 + peq::params::numBands * 13;
+        check (params.size() == expected, "parameter count = 5 global + 24 bands x 13");
 
         bool allAutomatable = true, idsOk = true, uniqueIds = true;
         juce::StringArray ids;
@@ -246,7 +246,7 @@ int main()
             if (! near (getValue (pa), getValue (pb), 1e-3 * std::max (1.0, std::abs ((double) getValue (pa)))))
                 ++mismatches;
         }
-        check (mismatches == 0, "save then load restores all 316 parameters");
+        check (mismatches == 0, "save then load restores all 317 parameters");
         check (juce::exactlyEqual ((double) b->getState().state.getProperty ("displayRange"), 12.0), "editor settings saved with the state");
 
         auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
@@ -337,6 +337,40 @@ int main()
         std::printf ("       15 kHz bell at 10 kHz: analogue %.2f dB, matched %.2f dB, classic %.2f dB\n", analog, on, off);
         check (near (on, analog, 0.75) && std::abs (on - analog) < 0.5 * std::abs (off - analog),
                "analog match: a 15 kHz bell keeps its analogue shape (classic one is squeezed)");
+    }
+
+    // Gain Scale (1.2): scales every band's gain; old states load at 100 %.
+    {
+        auto p = makeProcessor();
+        setupBell (*p, 6.0f);
+        check (near (getValue (param (*p, peq::params::gainScale)), 100.0, 1e-3), "gain scale: 100 % for a new instance");
+        setValue (param (*p, peq::params::gainScale), 50.0f);
+        const double half = sineGainDb (*p, 48000.0, 1000.0, 512);
+        setValue (param (*p, peq::params::gainScale), 0.0f);
+        const double none = sineGainDb (*p, 48000.0, 1000.0, 512);
+        setValue (param (*p, peq::params::gainScale), 200.0f);
+        const double twice = sineGainDb (*p, 48000.0, 1000.0, 512);
+        check (near (half, 3.0, 0.15) && near (none, 0.0, 0.1) && near (twice, 12.0, 0.2),
+               "gain scale: +6 dB bell gives +3 / 0 / +12 dB at 50 / 0 / 200 %");
+
+        // A state saved before Gain Scale existed.
+        setValue (param (*p, peq::params::gainScale), 100.0f);
+        juce::MemoryBlock saved;
+        p->getStateInformation (saved);
+        auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
+        for (auto* child = xml->getFirstChildElement(); child != nullptr;)
+        {
+            auto* next = child->getNextElement();
+            if (child->getStringAttribute ("id") == peq::params::gainScale)
+                xml->removeChildElement (child, true);
+            child = next;
+        }
+        juce::MemoryBlock old;
+        juce::AudioProcessor::copyXmlToBinary (*xml, old);
+        auto q = makeProcessor();
+        setValue (param (*q, peq::params::gainScale), 30.0f);
+        q->setStateInformation (old.getData(), (int) old.getSize());
+        check (near (getValue (param (*q, peq::params::gainScale)), 100.0, 1e-3), "gain scale: older projects load at 100 % (same sound)");
     }
 
     // Corrupt or foreign data is ignored.

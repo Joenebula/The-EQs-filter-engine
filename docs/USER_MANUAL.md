@@ -5,7 +5,7 @@ Cubase. It has a large interactive EQ graph, a real-time spectrum analyser,
 dynamic EQ on any bell or shelf, left/right/mid/side processing per band,
 presets, A/B compare and full automation.
 
-Version 1.1 · Vendor "Home Studio" · Personal use.
+Version 1.2 · Vendor "Home Studio" · Personal use.
 
 ---
 
@@ -58,6 +58,7 @@ From left to right along the top:
 | **+/- 18 dB** | Vertical scale of the graph (6, 12, 18 or 30 dB). Display only. |
 | **Analyser** | Spectrum analyser settings. |
 | **Analog** | Analog-matched curves (see below). On by default. |
+| Scale knob | **Gain Scale**: makes every band's boost or cut bigger or smaller together, 0 to 200 %. 100 % = as set, 0 % = flat. Double-click for 100 %. Saved in presets. |
 | **IN / OUT** | Input and output gain, -24 to +24 dB. Double-click to reset. |
 | Meter | Output peak level. Red light = went over 0 dBFS; click to reset. |
 | **Bypass** | Turns the whole EQ off (click-free). |
@@ -85,7 +86,12 @@ with it off, so they sound exactly as they did. It is not part of a preset.
 - **Click** an empty spot on the graph to add a band there. Near 20 Hz you
   get a low cut, near 20 kHz a high cut, anywhere else a bell.
 - **Drag** a dot: left/right changes the frequency, up/down the gain. Hold
-  **Shift** for fine moves.
+  **Shift** for fine moves. Hold **Alt** while you start the drag and up/down
+  changes the Q instead (up = narrower).
+- **Arrow keys** move the selected band: left/right one semitone, up/down
+  0.5 dB (with Shift: a quarter semitone and 0.1 dB).
+- Hover over an empty spot to see the frequency, the musical note and the
+  level at the mouse (bottom left of the graph).
 - **Mouse wheel** over a dot changes the Q (width). Higher Q = narrower.
 - **Double-click** a dot to reset its gain to 0 dB.
 - **Right-click** a dot for type, slope, channels, enable, solo, copy,
@@ -163,7 +169,7 @@ bells and shelves.
 
 The band's normal **Gain** still applies: the dynamics move away from it. For
 example, Gain +3 dB with Range -6 dB gives +3 dB on quiet parts and down to
--3 dB on loud parts.
+-3 dB on loud parts. Gain Scale scales the Gain, not the Range.
 
 On the graph a dynamic band shows:
 
@@ -256,6 +262,9 @@ is in the preset menu. Both settings are saved with the project.
 | Ctrl+C | Copy the selected band |
 | Ctrl+V | Paste a copied band as a new band |
 | Shift + drag | Fine adjustment |
+| Alt + drag | Change Q (up = narrower) |
+| Left / Right arrow | Selected band down / up a semitone (Shift: 1/4) |
+| Up / Down arrow | Selected band +/- 0.5 dB (Shift: 0.1 dB) |
 
 ## 10. Troubleshooting
 

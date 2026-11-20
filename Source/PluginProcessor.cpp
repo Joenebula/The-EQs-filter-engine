@@ -18,6 +18,8 @@ ParaEQAudioProcessor::ParaEQAudioProcessor()
     outputGainDb = apvts.getRawParameterValue (peq::params::outputGain);
     bypassParam  = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (peq::params::bypass));
     analogMatch  = apvts.getRawParameterValue (peq::params::analogMatch);
+    gainScale    = apvts.getRawParameterValue (peq::params::gainScale);
+    jassert (gainScale != nullptr);
     jassert (inputGainDb != nullptr && outputGainDb != nullptr && bypassParam != nullptr && analogMatch != nullptr);
 
     // Fixed size, allocated once: the editor may read these at any time, so
@@ -55,6 +57,7 @@ void ParaEQAudioProcessor::updateEngine() noexcept
 {
     const auto& slopes = peq::limits::slopesDbPerOct;
     const bool matched = analogMatch->load() >= 0.5f;
+    const double scale = juce::jlimit (0.0, 2.0, (double) gainScale->load() / 100.0);
 
     for (int b = 0; b < peq::FilterEngine::numBands; ++b)
     {
@@ -64,7 +67,7 @@ void ParaEQAudioProcessor::updateEngine() noexcept
         p.type        = (peq::FilterType) juce::jlimit (0, (int) peq::FilterType::NumTypes - 1,
                                                         juce::roundToInt (bp.type->load()));
         p.frequencyHz = (double) bp.freq->load();
-        p.gainDb      = (double) bp.gain->load();
+        p.gainDb      = (double) bp.gain->load() * scale;
         p.q           = (double) bp.q->load();
         p.slopeDbPerOct = slopes[(size_t) juce::jlimit (0, (int) slopes.size() - 1, juce::roundToInt (bp.slope->load()))];
         p.analogMatched = matched;
