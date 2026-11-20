@@ -5,9 +5,16 @@ on:
   pull_request:
   workflow_dispatch:
 
+# contents: write lets the build publish the plain download link (a release).
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-2022
+    concurrency:
+      group: build-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
@@ -47,3 +54,25 @@ jobs:
         with:
           name: ParaEQ-VST3-Windows-x64
           path: build/Source/ParaEQ_artefacts/Release/VST3/
+
+      # A plain download link that needs no GitHub sign-in:
+      #   main            -> release "latest"   (stable builds)
+      #   any other branch-> release "preview"  (builds awaiting merge)
+      # Each push replaces the previous file, so the link never changes.
+      - name: Publish download link (GitHub release)
+        if: github.event_name == 'push'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Compress-Archive -Path build/Source/ParaEQ_artefacts/Release/VST3/ParaEQ.vst3 -DestinationPath ParaEQ-VST3-Windows-x64.zip
+          if ("${{ github.ref_name }}" -eq "main") {
+            $tag = "latest"; $title = "ParaEQ latest build"; $pre = @()
+          } else {
+            $tag = "preview"; $title = "ParaEQ preview build (not merged yet)"; $pre = @("--prerelease")
+          }
+          $notes = "Built from ${{ github.ref_name }} at ${{ github.sha }}.`n`nInstall: unzip, copy the ParaEQ.vst3 folder into C:\Program Files\Common Files\VST3\, then rescan in Cubase (Studio > VST Plug-in Manager)."
+          gh release delete $tag --yes --cleanup-tag 2>$null
+          $global:LASTEXITCODE = 0
+          gh release create $tag ParaEQ-VST3-Windows-x64.zip --target ${{ github.sha }} --title $title --notes $notes @pre
+          if ($LASTEXITCODE -ne 0) { exit 1 }

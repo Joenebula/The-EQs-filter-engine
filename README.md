@@ -11,8 +11,8 @@ Phase 4. See [docs/PHASE_REPORT.md](docs/PHASE_REPORT.md).
 
 ## Quick install (no building needed)
 
-1. Open the repo's **Actions** tab, click the latest green "Windows build" run,
-   and download **ParaEQ-VST3-Windows-x64** under "Artifacts".
+1. Download the latest build (no GitHub sign-in needed):
+   <https://github.com/Joenebula/The-EQs-filter-engine/releases/download/latest/ParaEQ-VST3-Windows-x64.zip>
 2. Unzip it. Copy the `ParaEQ.vst3` folder into
    `C:\Program Files\Common Files\VST3\`.
 3. In Cubase: **Studio > VST Plug-in Manager**, press **Rescan**.
