@@ -11,7 +11,10 @@ namespace
 ParaEQAudioProcessor::ParaEQAudioProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
-                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                          // Optional sidechain for dynamic bands (1.3). Off until the
+                          // user routes a track to it in Cubase.
+                          .withInput  ("Sidechain", juce::AudioChannelSet::stereo(), false)),
       apvts (*this, &undoManager, "ParaEQState", peq::params::createLayout())
 {
     inputGainDb  = apvts.getRawParameterValue (peq::params::inputGain);
@@ -50,6 +53,8 @@ ParaEQAudioProcessor::ParaEQAudioProcessor()
         bp.range = get (BandField::range);
         bp.att   = get (BandField::att);
         bp.rel   = get (BandField::rel);
+        bp.ratio = get (BandField::ratio);
+        bp.sc    = get (BandField::sc);
     }
 }
 
@@ -81,6 +86,8 @@ void ParaEQAudioProcessor::updateEngine() noexcept
         d.rangeDb     = (double) bp.range->load();
         d.attackMs    = (double) bp.att->load();
         d.releaseMs   = (double) bp.rel->load();
+        d.ratio       = (double) bp.ratio->load();
+        d.externalSidechain = bp.sc->load() >= 0.5f;
         engine.setBandDynamics (b, d);
     }
 }
@@ -118,7 +125,17 @@ bool ParaEQAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) c
     const auto out = layouts.getMainOutputChannelSet();
     if (in != out)
         return false;
-    return out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo();
+    if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
+        return false;
+
+    // Sidechain: off, mono or stereo.
+    if (layouts.inputBuses.size() > 1)
+    {
+        const auto sc = layouts.getChannelSet (true, 1);
+        if (! sc.isDisabled() && sc != juce::AudioChannelSet::mono() && sc != juce::AudioChannelSet::stereo())
+            return false;
+    }
+    return true;
 }
 
 void ParaEQAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -202,11 +219,23 @@ void ParaEQAudioProcessor::processBlock (juce::AudioBuffer<double>& buffer, juce
 
 void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
 {
-    const int numChannels = juce::jmin (buffer.getNumChannels(), dryBuffer.getNumChannels());
+    // The buffer holds the main channels first, then the sidechain's (when
+    // the host has enabled that bus). Only the main channels are processed.
+    const int mainChannels = juce::jmax (getMainBusNumInputChannels(), getMainBusNumOutputChannels());
+    const int numChannels = juce::jmin (buffer.getNumChannels(), dryBuffer.getNumChannels(),
+                                        mainChannels > 0 ? mainChannels : buffer.getNumChannels(), 2);
     const int numSamples  = buffer.getNumSamples();
 
-    for (int ch = numChannels; ch < buffer.getNumChannels(); ++ch)
-        buffer.clear (ch, 0, numSamples);
+    const double* sidechain[2] {};
+    int numSidechain = 0;
+    if (getBusCount (true) > 1)
+        if (auto* scBus = getBus (true, 1); scBus != nullptr && scBus->isEnabled())
+        {
+            const int first = scBus->getChannelIndexInProcessBlockBuffer (0);
+            const int count = juce::jmin (scBus->getNumberOfChannels(), 2);
+            for (int k = 0; k < count && first + k < buffer.getNumChannels(); ++k)
+                sidechain[numSidechain++] = buffer.getReadPointer (first + k);
+        }
 
     inGain.setTargetValue (juce::Decibels::decibelsToGain ((double) inputGainDb->load()));
     outGain.setTargetValue (juce::Decibels::decibelsToGain ((double) outputGainDb->load()));
@@ -224,6 +253,8 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
         pushToAnalyser (postFifo, buffer, numChannels);
         for (auto& g : dynamicGainDb)
             g.store (0.0f, std::memory_order_relaxed);
+        for (int ch = numChannels; ch < buffer.getNumChannels(); ++ch)   // sidechain / unused
+            buffer.clear (ch, 0, numSamples);
         publishMeters (buffer, numChannels);
         return;
     }
@@ -252,7 +283,7 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
     pushToAnalyser (preFifo, buffer, numChannels);
 
     // 2. The EQ bands (then the solo/audition filter, normally off).
-    engine.process (data, numChannels, numSamples);
+    engine.process (data, numChannels, numSamples, sidechain, numSidechain);
     updateSolo();
     soloFilter.process (data, numChannels, numSamples);
 
@@ -272,6 +303,8 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
 
     for (int b = 0; b < peq::FilterEngine::numBands; ++b)
         dynamicGainDb[(size_t) b].store ((float) engine.dynamicOffsetDb (b), std::memory_order_relaxed);
+    for (int ch = numChannels; ch < buffer.getNumChannels(); ++ch)   // sidechain / unused
+        buffer.clear (ch, 0, numSamples);
     publishMeters (buffer, numChannels);
 }
 

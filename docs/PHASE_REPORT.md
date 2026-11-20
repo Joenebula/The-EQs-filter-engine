@@ -1,3 +1,42 @@
+# Version 1.3: sidechain and ratio for dynamic bands (2026-11-20)
+
+## What changed
+
+- **External sidechain.** ParaEQ now has an optional stereo side-chain input
+  (off until activated in the host). A dynamic band with **SC** on (new
+  parameter `bNN_sc`) feeds its detector from the side-chain instead of its
+  own audio, still through the band's detector filter. Example: duck a bass
+  guitar's low end only when the kick hits. With SC on but nothing routed
+  the band hears silence and stays at its set gain. The graph readout marks
+  such bands "(SC)".
+- **Ratio** per dynamic band (new parameter `bNN_ratio`, 1:1 to 20:1, shown
+  as "4.0:1"). Before, it was fixed at 2:1.
+- Both default to how earlier versions behaved (2:1, own signal), so older
+  projects, presets and copied bands sound the same. No state version bump.
+- Band panel: **SC** button next to Dynamic, **Ratio** knob between Range and
+  Attack. Copy/paste of a band includes both.
+- Processor: main channels and side-chain channels are now separated; only
+  the main bus is processed and the side-chain channels are cleared after use.
+  Mono or stereo side-chain, with mono or stereo main.
+- 365 parameters (5 global + 24 x 15).
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **56 tests, 0 failures** (4 new: ratio curve, sidechain ducking, no sidechain connected / linked stereo sidechain, smooth source switch) |
+| Plugin tests (Linux; Windows CI) | **93 checks, 0 failures** (11 new). Ducking through the real plugin at 100 Hz: 0.00 dB with the side-chain silent, -12.00 dB with it loud (range -12, 4:1), back to 0.00 dB after. Side-chain channels never reach the output. |
+| GUI tests (Linux, Xvfb) | **All pass** (4 new: SC button and Ratio knob shown, SC button sets the parameter, Ratio knob follows it, SC greys out with Dynamic off) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** The side-chain routing steps in the manual follow Cubase's usual side-chain workflow but have not been checked on Joe's Cubase version. |
+
+## Open issues and honest notes
+
+- Dynamic EQ still has no look-ahead; the knee is fixed at 6 dB.
+- The side-chain's left and right are always linked (loudest wins).
+
+---
+
 # Version 1.2: Gain Scale and faster editing (2026-11-20)
 
 ## What changed

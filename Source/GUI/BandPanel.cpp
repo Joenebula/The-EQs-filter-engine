@@ -29,7 +29,7 @@ BandPanel::BandPanel (ParaEQAudioProcessor& p, AllBands& b)
         addAndMakeVisible (*c);
     }
 
-    for (auto* k : { &freqKnob, &gainKnob, &qKnob, &thrKnob, &rangeKnob, &attKnob, &relKnob })
+    for (auto* k : { &freqKnob, &gainKnob, &qKnob, &thrKnob, &rangeKnob, &ratioKnob, &attKnob, &relKnob })
     {
         k->setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         k->setTextBoxStyle (juce::Slider::TextBoxBelow, false, 80, 18);
@@ -47,7 +47,13 @@ BandPanel::BandPanel (ParaEQAudioProcessor& p, AllBands& b)
     setupLabel (rangeLabel, "RANGE");
     setupLabel (attLabel, "ATTACK");
     setupLabel (relLabel, "RELEASE");
+    setupLabel (ratioLabel, "RATIO");
     rangeKnob.setDoubleClickReturnValue (true, 0.0);
+    ratioKnob.setDoubleClickReturnValue (true, dynamics::defaultRatio);
+    scButton.setClickingTogglesState (true);
+    scButton.setTooltip ("External sidechain: the band reacts to the signal sent to ParaEQ's sidechain input "
+                         "(in Cubase, activate the plugin's side-chain and route a track to it) instead of its own audio");
+    addAndMakeVisible (scButton);
     dynButton.setClickingTogglesState (true);
     dynButton.setTooltip ("Dynamic EQ: the band's gain moves by up to Range while its frequency region is above Threshold");
     addAndMakeVisible (dynButton);
@@ -78,7 +84,7 @@ void BandPanel::showBand (int newBand)
     // Destroy old attachments before re-attaching.
     typeAtt.reset(); slopeAtt.reset(); modeAtt.reset();
     freqAtt.reset(); gainAtt.reset(); qAtt.reset(); enableAtt.reset();
-    thrAtt.reset(); rangeAtt.reset(); attAtt.reset(); relAtt.reset(); dynAtt.reset();
+    thrAtt.reset(); rangeAtt.reset(); ratioAtt.reset(); attAtt.reset(); relAtt.reset(); dynAtt.reset(); scAtt.reset();
     shownDynGain = 0.0f;
 
     band = newBand;
@@ -103,12 +109,15 @@ void BandPanel::showBand (int newBand)
         rangeAtt = std::make_unique<SliderAttachment> (state, id (BandField::range), rangeKnob);
         attAtt   = std::make_unique<SliderAttachment> (state, id (BandField::att), attKnob);
         relAtt   = std::make_unique<SliderAttachment> (state, id (BandField::rel), relKnob);
+        ratioAtt = std::make_unique<SliderAttachment> (state, id (BandField::ratio), ratioKnob);
+        scAtt    = std::make_unique<ButtonAttachment> (state, id (BandField::sc), scButton);
 
         const auto colour = theme::bandColour (band);
-        for (auto* k : { &freqKnob, &gainKnob, &qKnob, &thrKnob, &rangeKnob, &attKnob, &relKnob })
+        for (auto* k : { &freqKnob, &gainKnob, &qKnob, &thrKnob, &rangeKnob, &ratioKnob, &attKnob, &relKnob })
             k->setColour (juce::Slider::rotarySliderFillColourId, colour);
         enableButton.setColour (juce::TextButton::buttonOnColourId, colour);
         dynButton.setColour (juce::TextButton::buttonOnColourId, colour);
+        scButton.setColour (juce::TextButton::buttonOnColourId, colour);
         updateEnablement();
     }
     repaint();
@@ -125,8 +134,9 @@ void BandPanel::updateEnablement()
     const bool canDyn = dynamics::typeSupportsDynamics (type);
     const bool dynOn = canDyn && bands[(size_t) band].isDynamic();
     dynButton.setEnabled (canDyn);
-    for (auto* k : { &thrKnob, &rangeKnob, &attKnob, &relKnob })
+    for (auto* k : { &thrKnob, &rangeKnob, &ratioKnob, &attKnob, &relKnob })
         k->setEnabled (dynOn);
+    scButton.setEnabled (dynOn);
 
     const bool soloed = processor.getSoloBand() == band;
     soloButton.setToggleState (soloed, juce::dontSendNotification);
@@ -234,17 +244,22 @@ void BandPanel::resized()
     placeCombo (combos2.removeFromTop (combos2.getHeight() / 2), modeLabel, modeBox);
     dynActivityArea = combos2.removeFromBottom (15);
     combos2.removeFromBottom (3);
-    dynButton.setBounds (combos2.removeFromBottom (26).reduced (0, 1));
+    {
+        auto row = combos2.removeFromBottom (26).reduced (0, 1);
+        scButton.setBounds (row.removeFromRight (narrow ? 30 : 34));
+        row.removeFromRight (3);
+        dynButton.setBounds (row);
+    }
 
     auto placeKnob = [] (juce::Rectangle<int> c, juce::Label& l, juce::Slider& k)
     {
         l.setBounds (c.removeFromTop (16));
         k.setBounds (c);
     };
-    // 7 knobs: freq, gain, Q, then the dynamic section.
-    const int knobW = juce::jlimit (46, 100, (area.getWidth() - 7 * gap - 8) / 7);
+    // 8 knobs: freq, gain, Q, then the dynamic section.
+    const int knobW = juce::jlimit (44, 100, (area.getWidth() - 8 * gap - 8) / 8);
     thrLabel.setText (knobW < 70 ? "THRESH" : "THRESHOLD", juce::dontSendNotification);
-    for (auto* k : { &freqKnob, &gainKnob, &qKnob, &thrKnob, &rangeKnob, &attKnob, &relKnob })
+    for (auto* k : { &freqKnob, &gainKnob, &qKnob, &thrKnob, &rangeKnob, &ratioKnob, &attKnob, &relKnob })
         k->setTextBoxStyle (juce::Slider::TextBoxBelow, false, knobW, 18);
     placeKnob (column (knobW), freqLabel, freqKnob);
     placeKnob (column (knobW), gainLabel, gainKnob);
@@ -253,6 +268,7 @@ void BandPanel::resized()
     const int dynStart = area.getX();
     placeKnob (column (knobW), thrLabel, thrKnob);
     placeKnob (column (knobW), rangeLabel, rangeKnob);
+    placeKnob (column (knobW), ratioLabel, ratioKnob);
     placeKnob (column (knobW), attLabel, attKnob);
     placeKnob (column (knobW), relLabel, relKnob);
     dynSectionArea = juce::Rectangle<int> (dynStart - 5, getLocalBounds().getY() + 4,

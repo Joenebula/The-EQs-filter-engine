@@ -13,8 +13,8 @@ namespace peq::gui
 {
 
 /** The strip under the graph showing every setting of the selected band:
-    type, slope, channels, frequency, gain, Q, dynamics (on, threshold,
-    range, attack, release, live gain change), enable, solo and delete. Its
+    type, slope, channels, frequency, gain, Q, dynamics (on, sidechain,
+    threshold, range, ratio, attack, release, live gain change), enable, solo and delete. Its
     controls are attached to the host parameters, so they stay in sync with
     the graph, automation and undo. */
 class BandPanel final : public juce::Component,
@@ -52,17 +52,17 @@ private:
     juce::TextButton enableButton { "On" }, soloButton { "Solo" }, deleteButton { "Delete" };
 
     // Dynamic EQ.
-    juce::TextButton dynButton { "Dynamic" };
-    juce::Slider thrKnob, rangeKnob, attKnob, relKnob;
-    juce::Label thrLabel, rangeLabel, attLabel, relLabel;
+    juce::TextButton dynButton { "Dynamic" }, scButton { "SC" };
+    juce::Slider thrKnob, rangeKnob, ratioKnob, attKnob, relKnob;
+    juce::Label thrLabel, rangeLabel, ratioLabel, attLabel, relLabel;
     juce::Rectangle<int> dynActivityArea, dynSectionArea;
     float shownDynGain = 0.0f;
 
     std::unique_ptr<ComboAttachment> typeAtt, slopeAtt, modeAtt;
     std::unique_ptr<SliderAttachment> freqAtt, gainAtt, qAtt;
     std::unique_ptr<ButtonAttachment> enableAtt;
-    std::unique_ptr<SliderAttachment> thrAtt, rangeAtt, attAtt, relAtt;
-    std::unique_ptr<ButtonAttachment> dynAtt;
+    std::unique_ptr<SliderAttachment> thrAtt, rangeAtt, ratioAtt, attAtt, relAtt;
+    std::unique_ptr<ButtonAttachment> dynAtt, scAtt;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BandPanel)
 };

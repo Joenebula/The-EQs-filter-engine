@@ -221,7 +221,38 @@ int main (int argc, char** argv)
             editor->getBandPanel().refreshActivity();
             save (*editor, outDir.getChildFile ("06-dynamic.png"));
 
+            // 1.3: the SC button and Ratio knob sit in the dynamic section,
+            // are live while Dynamic is on, and drive their parameters.
+            juce::TextButton* scButton = nullptr;
+            juce::Label* ratioLabel = nullptr;
+            for (auto* c : editor->getBandPanel().getChildren())
+            {
+                if (auto* tb = dynamic_cast<juce::TextButton*> (c); tb != nullptr && tb->getButtonText() == "SC")
+                    scButton = tb;
+                if (auto* lb = dynamic_cast<juce::Label*> (c); lb != nullptr && lb->getText() == "RATIO")
+                    ratioLabel = lb;
+            }
+            check (scButton != nullptr && scButton->isVisible() && scButton->isEnabled() && ! scButton->getBounds().isEmpty()
+                       && ratioLabel != nullptr && ratioLabel->isVisible(),
+                   "band panel shows the SC button and Ratio knob for a dynamic band");
+            if (scButton != nullptr)
+            {
+                scButton->setToggleState (true, juce::sendNotificationSync);
+                check (value (*proc, dynBand, BandField::sc) >= 0.5f, "SC button switches the band to the sidechain");
+                scButton->setToggleState (false, juce::sendNotificationSync);
+            }
+            setParam (BandField::ratio, 6.0f);
+            editor->getBandPanel().refreshActivity();
+            bool ratioShown = false;
+            for (auto* c : editor->getBandPanel().getChildren())
+                if (auto* sl = dynamic_cast<juce::Slider*> (c); sl != nullptr && near (sl->getValue(), 6.0, 1e-3))
+                    ratioShown = true;
+            check (ratioShown, "Ratio knob follows the parameter (6:1)");
+            setParam (BandField::ratio, 2.0f);
+
             setParam (BandField::dyn, 0.0f);
+            editor->getBandPanel().refreshActivity();
+            check (scButton == nullptr || ! scButton->isEnabled(), "SC button greys out when Dynamic is off");
             proc->processBlock (buffer, midi);
             check (near (proc->getDynamicGainDb (dynBand), 0.0, 1e-6), "switching dynamics off clears the gain change");
         }

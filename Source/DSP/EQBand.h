@@ -2,6 +2,7 @@
 
 #include "Dynamics.h"
 
+#include <algorithm>
 #include <array>
 
 namespace peq
@@ -64,6 +65,16 @@ public:
     void setDynamics (const DynamicSettings& settings) noexcept;
     const DynamicSettings& getDynamics() const noexcept { return dyn; }
 
+    /** The sidechain signal for the next process call (externalSidechain
+        bands only). The pointers must stay valid, and hold at least as many
+        samples as are processed, until that call returns; numChannels 0
+        means no sidechain is connected. Indices match the processed block. */
+    void setSidechain (const double* const* channels, int numChannels) noexcept
+    {
+        sidechain = channels;
+        numSidechainChannels = channels != nullptr ? std::min (numChannels, maxChannels) : 0;
+    }
+
     /** The gain change the dynamics are applying right now, in dB. */
     double currentDynamicOffsetDb() const noexcept { return dynOffsetDb; }
 
@@ -116,6 +127,9 @@ private:
     double dynOffsetDb = 0.0;
     BiquadCoefficients detectorCoeffs {};
     std::array<BiquadState, maxChannels> detectorState {};
+    bool detectorExternal = false;   // source the detector state belongs to
+    const double* const* sidechain = nullptr;
+    int numSidechainChannels = 0;
 
     CascadeCoefficients coeffs {};
     std::array<std::array<BiquadState, CascadeCoefficients::maxSections>, maxChannels> state {};

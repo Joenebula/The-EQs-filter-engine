@@ -11,7 +11,7 @@ using namespace juce;
 
 String bandID (int bandIndex, BandField field)
 {
-    static const char* const suffix[] = { "on", "type", "freq", "gain", "q", "slope", "mode", "used", "dyn", "thr", "range", "att", "rel" };
+    static const char* const suffix[] = { "on", "type", "freq", "gain", "q", "slope", "mode", "used", "dyn", "thr", "range", "att", "rel", "ratio", "sc" };
     return "b" + String (bandIndex + 1).paddedLeft ('0', 2) + "_" + suffix[(int) field];
 }
 
@@ -101,6 +101,10 @@ AudioProcessorValueTreeState::ParameterLayout createLayout()
     const auto qAttributes = AudioParameterFloatAttributes()
                                  .withStringFromValueFunction ([] (float v, int) { return String (v, v < 1.0f ? 3 : 2); });
 
+    const auto ratioAttributes = AudioParameterFloatAttributes()
+                                     .withStringFromValueFunction ([] (float v, int) { return String (v, v < 10.0f ? 1 : 0) + ":1"; })
+                                     .withValueFromStringFunction ([] (const String& t) { return t.upToFirstOccurrenceOf (":", false, false).getFloatValue(); });
+
     const auto msAttributes = AudioParameterFloatAttributes()
                                   .withLabel ("ms")
                                   .withStringFromValueFunction ([] (float v, int)
@@ -162,6 +166,13 @@ AudioProcessorValueTreeState::ParameterLayout createLayout()
                                                                 n + "Release",
                                                                 logRange ((float) dynamics::minReleaseMs, (float) dynamics::maxReleaseMs),
                                                                 150.0f, msAttributes));
+        // Added in 1.3: ratio (was fixed at 2:1) and external sidechain.
+        group->addChild (std::make_unique<AudioParameterFloat> (ParameterID { bandID (b, BandField::ratio), version },
+                                                                n + "Ratio",
+                                                                logRange ((float) dynamics::minRatio, (float) dynamics::maxRatio),
+                                                                (float) dynamics::defaultRatio, ratioAttributes));
+        group->addChild (std::make_unique<AudioParameterBool> (ParameterID { bandID (b, BandField::sc), version },
+                                                               n + "Sidechain", false));
         layout.add (std::move (group));
     }
 

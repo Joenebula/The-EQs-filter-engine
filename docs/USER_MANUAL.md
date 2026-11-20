@@ -2,10 +2,10 @@
 
 ParaEQ is a 24-band parametric EQ plugin (VST3, 64-bit Windows) made for
 Cubase. It has a large interactive EQ graph, a real-time spectrum analyser,
-dynamic EQ on any bell or shelf, left/right/mid/side processing per band,
+dynamic EQ on any bell or shelf (with an external sidechain), left/right/mid/side processing per band,
 presets, A/B compare and full automation.
 
-Version 1.2 · Vendor "Home Studio" · Personal use.
+Version 1.3 · Vendor "Home Studio" · Personal use.
 
 ---
 
@@ -164,8 +164,13 @@ bells and shelves.
 3. **Range**: the most the gain may move. Negative turns the band **down**
    when loud (taming harsh "s" sounds, a boomy note). Positive turns it **up**
    when loud.
-4. **Attack**: how fast it reacts (0.1 to 200 ms).
+4. **Ratio**: how hard it reacts once over the threshold, from 1:1 (not at
+   all) to 20:1. At 2:1 (the default) the gain moves 1 dB for every 2 dB
+   over; at 4:1, 3 dB for every 4 dB. It never goes past Range.
+5. **Attack**: how fast it reacts (0.1 to 200 ms).
    **Release**: how fast it lets go (5 ms to 2 s).
+6. **SC** (next to Dynamic): listen to the **sidechain** input instead of
+   the band's own audio. See below.
 
 The band's normal **Gain** still applies: the dynamics move away from it. For
 example, Gain +3 dB with Range -6 dB gives +3 dB on quiet parts and down to
@@ -180,8 +185,30 @@ On the graph a dynamic band shows:
 How it works: each dynamic band listens to its own frequency region (a
 band-pass at the band's frequency and Q for a bell, low or high frequencies
 for a shelf). L/R/M/S bands listen only to their own channel. Above the
-threshold the gain moves 1 dB for every 2 dB the region goes over, with a
-soft knee, up to the range.
+threshold the gain moves by the ratio (1 dB for every 2 dB over at 2:1),
+with a soft knee, up to the range.
+
+### Sidechain (another track controls the band)
+
+With **SC** on, a dynamic band reacts to a *different* track, sent to
+ParaEQ's sidechain input. The classic use: duck the bass guitar's low end
+only when the kick drum hits, so the two don't fight.
+
+1. On the bass track, add a low-shelf or a bell around 60 to 100 Hz, click
+   **Dynamic**, set Range to about -6 dB, and click **SC**.
+2. In Cubase, click the **side-chain** button at the top of ParaEQ's window
+   frame (the plugin window title bar) to activate the side-chain input.
+3. On the kick track, add a **Send** and pick the bass track's
+   *ParaEQ - Side-Chain* as its destination, then turn the send up. Pre-fader works best, so the
+   kick's own volume fader doesn't change the ducking.
+4. Play both and lower **Threshold** until the band moves on each kick.
+
+The sidechain still goes through the band's own detector filter, so a 80 Hz
+bell listens to the kick's 80 Hz region, not its click. The band's Channels
+setting decides what it *changes*; the sidechain's left and right are
+always heard together. If **SC** is on but nothing is routed (or the
+side-chain is not activated), the band hears silence and stays at its set
+Gain. The graph readout shows "(SC)" for such bands.
 
 ---
 
@@ -241,6 +268,8 @@ is in the preset menu. Both settings are saved with the project.
 - **Automation**: every setting can be automated. Use **Write** (W) on the
   track and move a knob or a dot. The parameters are named "Band 1 Freq",
   "Band 1 Gain", and so on, grouped by band.
+- **Side-chain**: ParaEQ has an optional side-chain input for dynamic
+  bands set to **SC** (see Dynamic EQ). It is off until you activate it.
 - **Latency**: zero. ParaEQ adds no delay, so it's safe for recording and
   live monitoring.
 - **64-bit processing**: supported (Studio > Studio Setup > Audio System >
@@ -276,6 +305,7 @@ is in the preset menu. Both settings are saved with the project.
 | No sound change | Is **Bypass** on? Is the band's **On** button on? Is the band set to Side on a mono source? |
 | The analyser is flat | It only shows while audio plays and the window is open. Check Analyser > Show isn't Off. |
 | Ctrl+Z undoes something in Cubase instead | Click inside the ParaEQ window first, or use the Undo button. |
+| A band set to **SC** never moves | Activate the side-chain on ParaEQ's window frame in Cubase, check the other track's send goes to *ParaEQ - Side-Chain* and is turned up, then lower **Threshold**. |
 | Output meter shows red | The output went over 0 dBFS. Lower **OUT** or the boosts. |
 
 ## 11. Known limitations
@@ -283,8 +313,7 @@ is in the preset menu. Both settings are saved with the project.
 - Automation is applied once per audio block and glided over about 20 ms, so
   it's smooth but not sample-accurate.
 - Dynamic EQ has no look-ahead, so the very start of a sharp hit can pass
-  before a band reacts. The ratio (1 dB per 2 dB) and knee are fixed.
-- No external sidechain input.
+  before a band reacts. The knee (6 dB) is fixed.
 - The combined curve is exact only for Stereo bands.
 - Analog-matched curves are very close to analogue but not perfect for
   bands centred right next to the top of the spectrum (about 1 dB on an

@@ -29,6 +29,8 @@ struct BandParamRefs
     juce::RangedAudioParameter* range = nullptr;
     juce::RangedAudioParameter* att = nullptr;
     juce::RangedAudioParameter* rel = nullptr;
+    juce::RangedAudioParameter* ratio = nullptr;
+    juce::RangedAudioParameter* sc = nullptr;
 
     static float get (const juce::RangedAudioParameter* p) noexcept
     {
@@ -103,6 +105,8 @@ inline AllBands makeBandRefs (juce::AudioProcessorValueTreeState& state)
         r.range = get (BandField::range);
         r.att = get (BandField::att);
         r.rel = get (BandField::rel);
+        r.ratio = get (BandField::ratio);
+        r.sc = get (BandField::sc);
     }
     return refs;
 }
@@ -124,6 +128,7 @@ inline juce::String bandToClipboardText (const BandParamRefs& r)
     add ("on", r.on); add ("type", r.type); add ("freq", r.freq); add ("gain", r.gain);
     add ("q", r.q); add ("slope", r.slope); add ("mode", r.mode);
     add ("dyn", r.dyn); add ("thr", r.thr); add ("range", r.range); add ("att", r.att); add ("rel", r.rel);
+    add ("ratio", r.ratio); add ("sc", r.sc);
     return xml.toString (juce::XmlElement::TextFormat().singleLine().withoutHeader());
 }
 
@@ -149,6 +154,7 @@ inline bool pasteBandFromClipboardText (BandParamRefs& r, const juce::String& te
     put ("type", r.type); put ("slope", r.slope); put ("mode", r.mode);
     put ("freq", r.freq); put ("gain", r.gain); put ("q", r.q);
     put ("dyn", r.dyn); put ("thr", r.thr); put ("range", r.range); put ("att", r.att); put ("rel", r.rel);
+    put ("ratio", r.ratio); put ("sc", r.sc);
     put ("on", r.on);
     BandParamRefs::setWithGesture (r.used, 1.0f);
     return true;

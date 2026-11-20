@@ -129,6 +129,8 @@ private:
         std::atomic<float>* range = nullptr;
         std::atomic<float>* att = nullptr;
         std::atomic<float>* rel = nullptr;
+        std::atomic<float>* ratio = nullptr;
+        std::atomic<float>* sc = nullptr;
     };
 
     void updateSolo() noexcept;

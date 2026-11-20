@@ -63,8 +63,11 @@ public:
         audio is stopped). */
     void snapToTargets() noexcept;
 
-    /** Processes in place. numChannels is clamped to maxChannels. */
-    void process (double* const* channels, int numChannels, int numSamples) noexcept;
+    /** Processes in place. numChannels is clamped to maxChannels.
+        sidechain (optional, numSidechainChannels of numSamples each) feeds
+        the detectors of bands set to listen to the external sidechain. */
+    void process (double* const* channels, int numChannels, int numSamples,
+                  const double* const* sidechain = nullptr, int numSidechainChannels = 0) noexcept;
 
     const EQBand& band (int index) const noexcept { return bands[(size_t) index]; }
 
