@@ -27,6 +27,9 @@ private:
     void timerCallback() override;
     void undo();
     void redo();
+    void showAnalyserMenu();
+    void loadAnalyserSettings();
+    void saveAnalyserSettings (const peq::gui::AnalyserSettings&);
 
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
@@ -39,6 +42,7 @@ private:
     peq::gui::BandPanel bandPanel;
 
     juce::TextButton undoButton { "Undo" }, redoButton { "Redo" }, bypassButton { "Bypass" };
+    juce::TextButton analyserButton { "Analyser" };
     juce::ComboBox rangeBox;
     juce::Slider inGainKnob, outGainKnob;
     juce::Label inGainLabel, outGainLabel, rangeLabel;

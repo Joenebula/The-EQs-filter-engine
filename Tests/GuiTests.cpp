@@ -148,6 +148,36 @@ int main (int argc, char** argv)
     check (near (value (*other, b4, BandField::q), value (*proc, b4, BandField::q), 1e-4), "saved state restores band Q");
     check (value (*other, b6, BandField::on) < 0.5f && value (*other, b6, BandField::used) > 0.5f, "saved state restores a bypassed band");
 
+    // Spectrum analyser: run audio (pink-ish noise plus a 1 kHz tone) through
+    // the processor and let the graph analyse it.
+    {
+        auto settings = graph.getAnalyserSettings();
+        settings.show = peq::gui::AnalyserSettings::Show::preAndPost;
+        settings.peakHold = true;
+        graph.setAnalyserSettings (settings);
+        juce::Random r2 (7);
+        double phase = 0.0, lp = 0.0;
+        bool gotSpectrum = false;
+        for (int block = 0; block < 120; ++block)
+        {
+            for (int i = 0; i < 512; ++i)
+            {
+                lp = 0.97 * lp + 0.03 * (r2.nextFloat() - 0.5);
+                phase += 2.0 * juce::MathConstants<double>::pi * 1000.0 / 48000.0;
+                const float s = (float) (3.0 * lp + 0.25 * std::sin (phase));
+                buffer.setSample (0, i, s);
+                buffer.setSample (1, i, s);
+            }
+            proc->processBlock (buffer, midi);
+            gotSpectrum |= graph.updateAnalyser (512.0 / 48000.0);
+        }
+        check (gotSpectrum, "analyser produces spectra from the processor's audio");
+        save (*editor, outDir.getChildFile ("05-analyser.png"));
+
+        settings.show = peq::gui::AnalyserSettings::Show::off;
+        graph.setAnalyserSettings (settings);
+    }
+
     // Small window still lays out.
     editor->setSize (760, 460);
     save (*editor, outDir.getChildFile ("04-small.png"));

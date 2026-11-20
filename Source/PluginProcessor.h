@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DSP/FilterEngine.h"
+#include "DSP/SampleFifo.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -63,6 +64,12 @@ public:
     void setSoloBand (int bandIndex) noexcept { soloBand.store (bandIndex); }
     int getSoloBand() const noexcept { return soloBand.load(); }
 
+    /** Spectrum analyser feeds: mono (L+R)/2 audio before the EQ (after input
+        gain) and after the output gain. Filled only while the editor asks. */
+    peq::SampleFifo& getPreFifo() noexcept  { return preFifo; }
+    peq::SampleFifo& getPostFifo() noexcept { return postFifo; }
+    void setAnalyserWanted (bool wanted) noexcept { analyserWanted.store (wanted); }
+
     /** Current sample rate, or 48 kHz before the host has prepared us (used by
         the editor to draw response curves). */
     double getCurrentSampleRateOrDefault() const noexcept
@@ -101,6 +108,12 @@ private:
 
     peq::FilterEngine engine;
     bool engineIdle = false;   // true while fully bypassed (EQ not running)
+
+    void pushToAnalyser (peq::SampleFifo& fifo, const juce::AudioBuffer<double>& buffer, int numChannels) noexcept;
+
+    peq::SampleFifo preFifo, postFifo;
+    std::vector<float> analyserScratch;
+    std::atomic<bool> analyserWanted { false };
 
     std::atomic<int> soloBand { -1 };
     peq::EQBand soloFilter;

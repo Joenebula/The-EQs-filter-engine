@@ -205,8 +205,71 @@ void EQGraph::toggleSolo (int band)
 }
 
 //==============================================================================
+void EQGraph::setAnalyserSettings (const AnalyserSettings& newSettings)
+{
+    analyser = newSettings;
+    processor.setAnalyserWanted (analyser.enabled());
+    configureAnalysers();
+    for (auto* a : { &preAnalyser, &postAnalyser })
+    {
+        a->setReleaseSeconds (analyser.releaseSeconds);
+        a->setPeakHold (analyser.peakHold);
+    }
+    repaint();
+}
+
+void EQGraph::configureAnalysers()
+{
+    const double sr = processor.getCurrentSampleRateOrDefault();
+    if (juce::exactlyEqual (sr, analyserRate) && analyser.fftOrder == analyserOrder)
+        return;
+    analyserRate = sr;
+    analyserOrder = analyser.fftOrder;
+    for (auto* a : { &preAnalyser, &postAnalyser })
+    {
+        a->configure (analyserOrder, sr);
+        a->setReleaseSeconds (analyser.releaseSeconds);
+        a->setPeakHold (analyser.peakHold);
+    }
+}
+
+bool EQGraph::updateAnalyser (double elapsedSeconds)
+{
+    configureAnalysers();
+    bool fresh = false;
+    if (fifoScratch.size() < 8192)
+        fifoScratch.resize (8192);
+
+    auto drain = [this] (SampleFifo& fifo, SpectrumAnalyser& a, bool use)
+    {
+        for (;;)
+        {
+            const size_t n = fifo.pop (fifoScratch.data(), fifoScratch.size());
+            if (n == 0)
+                break;
+            if (use)
+                a.addSamples (fifoScratch.data(), (int) n);
+        }
+    };
+    drain (processor.getPreFifo(), preAnalyser, analyser.showPre());
+    drain (processor.getPostFifo(), postAnalyser, analyser.showPost());
+
+    if (analyser.showPre())  fresh |= preAnalyser.computeIfReady (elapsedSeconds);
+    if (analyser.showPost()) fresh |= postAnalyser.computeIfReady (elapsedSeconds);
+    return fresh;
+}
+
 void EQGraph::timerCallback()
 {
+    if (analyser.enabled())
+    {
+        const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        const double dt = lastAnalyserTime > 0.0 ? juce::jlimit (0.0, 0.5, now - lastAnalyserTime) : 0.0;
+        lastAnalyserTime = now;
+        updateAnalyser (dt);
+        repaint();
+    }
+
     // Polling is simpler and safer than parameter listeners here: host
     // automation arrives on the audio thread, and 30 checks a second of ~200
     // floats costs nothing. The curves are only recomputed when a value moved.
@@ -281,6 +344,8 @@ void EQGraph::paint (juce::Graphics& g)
     g.fillAll (theme::graphBg);
     const auto plot = plotArea();
     drawGrid (g, plot);
+    if (analyser.enabled())
+        drawSpectrum (g, plot);
     drawCurves (g, plot);
     drawNodes (g);
 
@@ -356,6 +421,90 @@ void EQGraph::drawGrid (juce::Graphics& g, juce::Rectangle<float> plot) const
         g.setColour (juce::Colours::black.withAlpha (0.35f));
         g.fillRect (juce::Rectangle<float> (x, plot.getY(), plot.getRight() - x, plot.getHeight()));
     }
+}
+
+void EQGraph::drawSpectrum (juce::Graphics& g, juce::Rectangle<float> plot) const
+{
+    const double nyquist = 0.5 * preAnalyser.sampleRate();
+    const float lastX = juce::jmin (plot.getRight(), xForFreq (nyquist));
+    const double binWidth = preAnalyser.sampleRate() / (double) preAnalyser.fftSize();
+    const float alpha = juce::jlimit (0.0f, 1.0f, analyser.opacity);
+
+    auto yForLevel = [&] (double dbfs)
+    {
+        const double t = (0.0 - dbfs) / (0.0 - analyserFloorDb);
+        return juce::jlimit (plot.getY(), plot.getBottom(), plot.getY() + (float) t * plot.getHeight());
+    };
+
+    auto buildPath = [&] (const std::vector<double>& bins, bool closed)
+    {
+        std::vector<double> prefix;
+        SpectrumAnalyser::buildPowerPrefix (bins, prefix);
+        juce::Path p;
+        bool started = false;
+        for (float x = plot.getX(); x <= lastX; x += 2.0f)
+        {
+            const double hz = graph::xToFreq ((double) (x - plot.getX()), (double) plot.getWidth());
+            const double level = SpectrumAnalyser::levelAtPrefix (prefix, hz, binWidth, analyser.smoothingOctaves)
+                                 + analyser.tiltDbPerOctave * std::log2 (hz / 1000.0);
+            const float y = yForLevel (level);
+            if (! started)
+            {
+                if (closed) { p.startNewSubPath (x, plot.getBottom()); p.lineTo (x, y); }
+                else        p.startNewSubPath (x, y);
+                started = true;
+            }
+            else
+            {
+                p.lineTo (x, y);
+            }
+        }
+        if (closed && started)
+        {
+            p.lineTo (lastX, plot.getBottom());
+            p.closeSubPath();
+        }
+        return p;
+    };
+
+    g.saveState();
+    g.reduceClipRegion (plot.toNearestInt());
+
+    if (analyser.showPost())
+    {
+        auto fill = buildPath (postAnalyser.levelsDb(), true);
+        const auto colour = juce::Colour (0xff3d7fa6);
+        g.setGradientFill (juce::ColourGradient (colour.withAlpha (0.55f * alpha), 0.0f, plot.getY(),
+                                                 colour.withAlpha (0.12f * alpha), 0.0f, plot.getBottom(), false));
+        g.fillPath (fill);
+        g.setColour (colour.brighter (0.4f).withAlpha (0.7f * alpha));
+        g.strokePath (buildPath (postAnalyser.levelsDb(), false), juce::PathStrokeType (1.0f));
+        if (analyser.peakHold)
+        {
+            g.setColour (colour.brighter (0.8f).withAlpha (0.6f * alpha));
+            g.strokePath (buildPath (postAnalyser.peaksDb(), false), juce::PathStrokeType (0.8f));
+        }
+    }
+
+    if (analyser.showPre())
+    {
+        g.setColour (juce::Colour (0xff8a93a3).withAlpha (0.55f * alpha));
+        g.strokePath (buildPath (preAnalyser.levelsDb(), false), juce::PathStrokeType (1.0f));
+        if (analyser.peakHold && ! analyser.showPost())
+        {
+            g.setColour (juce::Colour (0xffb0b8c6).withAlpha (0.5f * alpha));
+            g.strokePath (buildPath (preAnalyser.peaksDb(), false), juce::PathStrokeType (0.8f));
+        }
+    }
+
+    // dBFS scale for the analyser, small, on the left edge.
+    g.setFont (theme::font (10.0f));
+    g.setColour (theme::gridText.withAlpha (0.8f));
+    for (double db = -30.0; db > analyserFloorDb; db -= 30.0)
+        g.drawText (juce::String ((int) db), juce::Rectangle<float> (plot.getX() + 3.0f, yForLevel (db) - 7.0f, 30.0f, 14.0f),
+                    juce::Justification::centredLeft);
+
+    g.restoreState();
 }
 
 void EQGraph::drawCurves (juce::Graphics& g, juce::Rectangle<float> plot) const

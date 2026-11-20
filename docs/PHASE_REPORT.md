@@ -1,3 +1,49 @@
+# Phase report: Phase 5 (2026-11-20)
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP, engine, graph and analyser tests, GCC 13 (Linux) | **36 tests, 191,749 checks, 0 failures** |
+| Same tests under AddressSanitizer + UBSan (-Wconversion -Werror) and ThreadSanitizer | **Clean** |
+| Headless GUI test (real processor + editor, Linux, Xvfb) | **All 22 checks pass** |
+| Visual Studio 2022 build, tests, pluginval (GitHub Actions) | See the pull request's checks |
+| Cubase | **Phase 5 not yet tried in Cubase.** |
+
+## Phase 5: spectrum analyser (done)
+
+![Phase 5](screenshot-phase5.png)
+
+- The audio thread copies a mono mix of the signal into two lock-free FIFOs
+  (pre-EQ after input gain, post-EQ at the output). No locks or allocation on
+  the audio thread; nothing is copied while the editor is closed.
+- The GUI pulls the samples, runs a Hann-windowed FFT (2048 to 32768 points,
+  default 8192) with 75 % overlap, and draws the post spectrum as a filled
+  shape and the pre spectrum as a grey line, both behind the EQ curves.
+- Instant rise, adjustable fall ("speed"), optional peak-hold line that decays
+  at 6 dB/s, 1/12 to 1 octave smoothing, opacity, and a display tilt
+  (default 4.5 dB/octave around 1 kHz, so typical music looks roughly flat).
+  Scale on the left: 0 to -90 dBFS.
+- All settings sit in the Analyser menu and are saved in the plugin state.
+
+### New tests (Tests/AnalyserTests.cpp)
+
+FFT matches a direct DFT; a sine reads its level at its frequency
+(calibration); silence reads the floor and release falls at the set speed;
+peak hold keeps the maximum and decays slowly; fractional-octave smoothing
+via prefix sums matches direct averaging; the FIFO keeps sample order, drops
+on overflow, and works with writer and reader on two threads. The GUI test checks
+that the editor produces spectra from the processor's real audio.
+
+### Honest notes
+
+- The analyser shows a mono sum (L+R)/2. Side-only content does not show.
+- The tilt only changes the picture, not the sound.
+- Very low frequencies are coarse at small FFT sizes (by nature of the FFT);
+  pick a larger resolution in the menu if you need more detail down low.
+
+---
+
 # Phase report: Phase 4 (2026-11-20)
 
 ## What was verified, and where
@@ -5,7 +51,7 @@
 | Check | Result |
 |---|---|
 | DSP, engine and graph-maths tests, GCC 13 (Linux) | **30 tests, 191,708 checks, 0 failures** |
-| Headless GUI test (real processor + editor, Linux, Xvfb) | **All 21 checks pass** (see below) |
+| Headless GUI test (real processor + editor, Linux, Xvfb) | **All 21 checks pass** (22 after Phase 5) (see below) |
 | Visual Studio 2022 build, tests, pluginval (GitHub Actions) | See the pull request's checks |
 | Cubase | Phase 1-2 build confirmed loading and working by Joe. **Phase 4 not yet tried in Cubase.** |
 

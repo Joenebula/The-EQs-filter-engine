@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BandParams.h"
+#include "../DSP/SpectrumAnalyser.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -11,6 +12,23 @@ class ParaEQAudioProcessor;
 
 namespace peq::gui
 {
+
+/** How the spectrum analyser behind the curves is shown. */
+struct AnalyserSettings
+{
+    enum class Show { off = 0, post, preAndPost, pre };
+    Show show = Show::preAndPost;
+    int fftOrder = 13;              // 2^13 = 8192 points
+    double releaseSeconds = 0.6;    // per 20 dB fall ("speed")
+    bool peakHold = false;
+    double smoothingOctaves = 1.0 / 6.0;
+    float opacity = 0.75f;
+    double tiltDbPerOctave = 4.5;   // pivot at 1 kHz; makes typical music look flat
+
+    bool showPre() const noexcept  { return show == Show::pre || show == Show::preAndPost; }
+    bool showPost() const noexcept { return show == Show::post || show == Show::preAndPost; }
+    bool enabled() const noexcept  { return show != Show::off; }
+};
 
 /** The interactive frequency-response graph.
 
@@ -61,6 +79,16 @@ public:
 
     juce::Rectangle<float> plotArea() const;
 
+    void setAnalyserSettings (const AnalyserSettings&);
+    const AnalyserSettings& getAnalyserSettings() const noexcept { return analyser; }
+
+    /** Pulls audio from the processor and updates the analyser (called by the
+        timer; public for tests). Returns true if a new spectrum was made. */
+    bool updateAnalyser (double elapsedSeconds);
+
+    /** Analyser display range: 0 dBFS at the top, this at the bottom. */
+    static constexpr double analyserFloorDb = -90.0;
+
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -88,6 +116,8 @@ private:
     void drawCurves (juce::Graphics&, juce::Rectangle<float> plot) const;
     void drawNodes (juce::Graphics&) const;
     void drawReadout (juce::Graphics&, int band) const;
+    void drawSpectrum (juce::Graphics&, juce::Rectangle<float> plot) const;
+    void configureAnalysers();
 
     float xForFreq (double hz) const;
     float yForDb (double db) const;
@@ -115,6 +145,14 @@ private:
     double dragStartLogFreq = 0.0, dragStartGain = 0.0;
     bool dragMovesGain = false;
     juce::uint32 lastWheelTime = 0;
+
+    // Spectrum analyser.
+    AnalyserSettings analyser;
+    SpectrumAnalyser preAnalyser, postAnalyser;
+    std::vector<float> fifoScratch;
+    double analyserRate = 0.0;
+    int analyserOrder = 0;
+    double lastAnalyserTime = 0.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EQGraph)
 };

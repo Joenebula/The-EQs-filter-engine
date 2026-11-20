@@ -19,6 +19,11 @@ ParaEQAudioProcessor::ParaEQAudioProcessor()
     bypassParam  = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (peq::params::bypass));
     jassert (inputGainDb != nullptr && outputGainDb != nullptr && bypassParam != nullptr);
 
+    // Fixed size, allocated once: the editor may read these at any time, so
+    // they are never resized while the plugin exists (~0.7 s at 192 kHz).
+    preFifo.setCapacity (1 << 17);
+    postFifo.setCapacity (1 << 17);
+
     using peq::params::BandField;
     for (int b = 0; b < peq::FilterEngine::numBands; ++b)
     {
@@ -103,6 +108,7 @@ void ParaEQAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     const int block = juce::jmax (samplesPerBlock, 32);
 
     doubleBuffer.setSize (channels, block);
+    analyserScratch.assign ((size_t) block, 0.0f);
     dryBuffer.setSize (channels, block);
 
     inGain.reset (sampleRate, gainSmoothingSeconds);
@@ -195,6 +201,8 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
         inGain.skip (numSamples);
         outGain.skip (numSamples);
         engineIdle = true;
+        pushToAnalyser (preFifo, buffer, numChannels);
+        pushToAnalyser (postFifo, buffer, numChannels);
         return;
     }
 
@@ -219,6 +227,8 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
             data[ch][i] *= g;
     }
 
+    pushToAnalyser (preFifo, buffer, numChannels);
+
     // 2. The EQ bands (then the solo/audition filter, normally off).
     engine.process (data, numChannels, numSamples);
     updateSolo();
@@ -235,6 +245,26 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
             data[ch][i] = dry + w * (data[ch][i] * g - dry);
         }
     }
+
+    pushToAnalyser (postFifo, buffer, numChannels);
+}
+
+void ParaEQAudioProcessor::pushToAnalyser (peq::SampleFifo& fifo, const juce::AudioBuffer<double>& buffer,
+                                           int numChannels) noexcept
+{
+    if (! analyserWanted.load (std::memory_order_relaxed) || numChannels <= 0)
+        return;
+
+    const int n = juce::jmin (buffer.getNumSamples(), (int) analyserScratch.size());
+    const double scale = 1.0 / (double) numChannels;
+    for (int i = 0; i < n; ++i)
+    {
+        double sum = 0.0;
+        for (int ch = 0; ch < numChannels; ++ch)
+            sum += buffer.getSample (ch, i);
+        analyserScratch[(size_t) i] = (float) (sum * scale);
+    }
+    fifo.push (analyserScratch.data(), (size_t) n);
 }
 
 juce::AudioProcessorEditor* ParaEQAudioProcessor::createEditor()

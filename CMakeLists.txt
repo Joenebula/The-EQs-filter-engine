@@ -38,6 +38,9 @@ add_library(peq_dsp STATIC
     Source/DSP/EQBand.cpp
     Source/DSP/FilterEngine.h
     Source/DSP/FilterEngine.cpp
+    Source/DSP/SampleFifo.h
+    Source/DSP/SpectrumAnalyser.h
+    Source/DSP/SpectrumAnalyser.cpp
 )
 target_include_directories(peq_dsp PUBLIC Source)
 set_target_properties(peq_dsp PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -50,8 +53,10 @@ if(PEQ_BUILD_TESTS)
         Tests/DSPTests.cpp
         Tests/EngineTests.cpp
         Tests/GraphTests.cpp
+        Tests/AnalyserTests.cpp
     )
-    target_link_libraries(peq_tests PRIVATE peq_dsp)
+    find_package(Threads REQUIRED)
+    target_link_libraries(peq_tests PRIVATE peq_dsp Threads::Threads)
     add_test(NAME peq_dsp_tests COMMAND peq_tests)
 endif()
 

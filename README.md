@@ -4,11 +4,12 @@ An original parametric EQ plugin (VST3, Windows, for use in Cubase), built with
 JUCE and C++17. Personal-use project. No third-party EQ code, names or artwork
 is used; all DSP is written from published filter maths.
 
-**Status: Phase 4 of 10.** 24 working EQ bands (each with its own type, slope
-and stereo / left / right / mid / side routing) and an interactive EQ graph.
+**Status: Phase 5 of 10.** 24 working EQ bands (each with its own type, slope
+and stereo / left / right / mid / side routing), an interactive EQ graph and a
+real-time spectrum analyser behind the curves.
 See [docs/PHASE_REPORT.md](docs/PHASE_REPORT.md).
 
-![ParaEQ](docs/screenshot-phase4.png)
+![ParaEQ](docs/screenshot-phase5.png)
 
 ## Using it
 
@@ -18,6 +19,10 @@ See [docs/PHASE_REPORT.md](docs/PHASE_REPORT.md).
 - **Mouse wheel** over a dot = Q (width).
 - **Double-click** a dot = reset its gain to 0 dB.
 - **Right-click** a dot = type, slope, channels, enable, solo, delete.
+- **Analyser** button (top bar) = spectrum settings: off / post / pre / pre+post,
+  resolution, speed, peak hold, smoothing, opacity and tilt. The filled
+  spectrum is the output (post-EQ), the grey line is the input (pre-EQ).
+  Settings are saved with your project.
 - The panel at the bottom shows every setting of the selected band.
 - **Undo / Redo** buttons, or Ctrl+Z / Ctrl+Y. **Delete** key removes the selected band.
 - **Solo** plays only the frequency region of that band, so you can find what to cut.
