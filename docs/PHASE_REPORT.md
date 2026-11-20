@@ -1,3 +1,66 @@
+# Phase report: Phase 3 (2026-11-20)
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP + engine tests, GCC 13 Release (Linux) | **27 tests, 191,659 checks, 0 failures** |
+| Same tests with AddressSanitizer + UBSan, `-Wconversion -Wshadow -Werror` | 0 failures, no warnings, no sanitizer reports |
+| Visual Studio 2022 x64 build (GitHub Actions) | CI_BUILD |
+| Tests on Windows (GitHub Actions) | CI_TESTS |
+| pluginval, strictness 5 (GitHub Actions, Windows) | CI_PLUGINVAL |
+| Cubase scan / load / automation | **Not tested yet** (needs Joe's PC) |
+
+## Phase 3: multi-band filter implementation (done)
+
+- **24 bands** in series (`Source/DSP/FilterEngine.*`), each a Phase 2
+  `EQBand`.
+- **Per-band channel routing**: Stereo, Left, Right, Mid or Side. Mid/side
+  conversion is only done where the chain needs it (one conversion each way
+  for a run of mid/side bands). Mono tracks: every band processes the single
+  channel.
+- **Changing a band's routing while playing** fades the band out, swaps the
+  routing, clears its memory and fades it back in (no click).
+- **Host parameters**: 7 per band (On, Type, Freq, Gain, Q, Slope, Channels),
+  168 in total plus input gain, output gain and bypass. Grouped per band, so
+  Cubase shows them as "Band 1", "Band 2" ... Frequency and Q move evenly on a
+  log scale; frequency shows as Hz/kHz. All bands start **off**, spread from
+  30 Hz to 16 kHz, so a new instance is transparent.
+- Signal path: input gain, 24 bands, output gain, global bypass crossfade.
+- Bands that are off cost almost nothing (no filtering is run).
+- **Smoother fades**: band on/off, type/slope and routing changes now use an
+  S-shaped fade instead of a straight line. Click level for "bypass a +12 dB
+  band" improved from -91 dB to -122 dB; for routing changes it is about
+  -100 dB (vs -8 dB with no smoothing).
+
+### New tests (Tests/EngineTests.cpp)
+
+- All bands off: output bit-identical (stereo and mono).
+- Left/Right bands change only their channel, bit-exactly matching a single band.
+- Mid/Side: with L = R a Side band does nothing and a Mid band equals a Stereo
+  band; with R = -L a Mid band does nothing; a Side band leaves L + R unchanged.
+- 24 random bells together: measured response equals the sum of the designed
+  responses within 0.02 dB at 44.1 and 96 kHz.
+- A mixed Left / Mid / Side / Stereo chain matches a hand-built reference
+  within 1e-12.
+- Changing routing while playing is click-free (< -80 dB).
+- 2 s of random automation of all 24 bands (type, slope, routing, on/off)
+  every 128 samples at 44.1 and 192 kHz stays finite and bounded.
+
+### Not in this phase (by plan)
+
+- Band **solo** needs the graphical interface to be useful (listen to one band
+  while dragging it), so it comes with Phase 4.
+- The window is still JUCE's plain list of controls (scrollable, 171 entries).
+
+### CI changes
+
+- The Windows build now also runs **pluginval** (a widely used plugin
+  validator) on the VST3.
+- The download zip now unpacks straight to a `ParaEQ.vst3` folder.
+
+---
+
 # Phase report: Phases 1 and 2 (2026-11-20)
 
 ## What was verified, and where
