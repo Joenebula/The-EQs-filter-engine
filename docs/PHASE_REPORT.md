@@ -1,3 +1,75 @@
+# Phase report: Phase 7 (2026-11-20)
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **44 tests, 191,781 checks, 0 failures** |
+| New plugin-level tests (real processor, no editor; Linux, and in Windows CI) | **38 checks, 0 failures** locally; Windows: see the pull request's checks |
+| Headless GUI test (Linux, Xvfb) | **All 26 checks pass** |
+| pluginval strictness 5 (Windows CI) | See the pull request's checks |
+| Cubase | **Not yet tried by a person for Phases 3-7.** Checklist: [CUBASE_TESTING.md](CUBASE_TESTING.md) |
+
+## Phase 7: Cubase VST3 integration (done, pending a real Cubase run)
+
+Most of the VST3 integration was already in place from earlier phases (JUCE
+VST3 wrapper, stable plugin codes, "Fx|EQ" category, host bypass parameter,
+64-bit processing, resizable editor). This phase checks all of it with
+automated tests that run on every Windows build, and fixes what the tests
+found.
+
+### Changes
+
+- **State versioning.** Saved state now carries `stateVersion` (2). States
+  without it (Phases 1-5) load with the newer parameters at their defaults
+  (dynamics off), so old projects sound as saved. Corrupt data or another
+  plugin's chunk is ignored and the current settings are kept. Loading a
+  project clears the plugin's undo list, so Undo can't step back into the
+  previous project.
+- **No drift on save/load.** Frequency, Q, attack and release use a log
+  scale; its conversion was done in single precision, so each save and
+  reload moved values by about one part per million. Now done in double
+  precision; save, load, save gives identical data.
+- **Plugin tests in CI** (`Tests/PluginTests.cpp`, target `peq_plugin_tests`,
+  run by ctest on Windows next to the DSP tests).
+- **Cubase test checklist** for Joe ([CUBASE_TESTING.md](CUBASE_TESTING.md)).
+
+### What the plugin tests check (38 checks)
+
+- Identity: name, zero latency and tail, no MIDI, 64-bit support, host bypass.
+- Buses: stereo and mono accepted; mono-to-stereo and 5.1 refused.
+- Parameters: 315 in total (3 global + 24 bands x 13), all automatable, all
+  IDs unique, the saved IDs present; values display and can be typed as
+  Cubase shows them ("2.50 kHz", "3.2k", "25 ms", "1.5 s").
+- State: all 315 parameters and the editor settings restored; version tag
+  written; save/load/save identical; an old-style project (no version, no
+  dynamic parameters) loads correctly and sounds as saved; random bytes, empty
+  data and a foreign chunk are ignored.
+- Automation: gain automated every block (sweep and jumps) gives no jumps in
+  the output and lands on the automated value.
+- Sample rates 22.05 to 192 kHz and block sizes 32 to 2048, changed while the
+  instance stays alive: the bell measures +6 dB at 1 kHz every time; a band
+  set above Nyquist stays stable; a host block larger than announced is
+  handled.
+- Bypass is bit-exact after its 10 ms fade.
+- Mono processing works; 32-bit and 64-bit processing match.
+- Four instances processing at once on four threads stay independent.
+
+### Honest notes
+
+- **Sample-accurate automation:** JUCE's VST3 wrapper hands the plugin the
+  latest parameter value once per audio block, not per sample. ParaEQ glides
+  every change over about 20 ms, so automation is smooth but not
+  sample-accurate. Cubase blocks are usually 2-10 ms, so the timing error is
+  below that. Doing better would mean replacing JUCE's VST3 parameter
+  handling; not planned.
+- The automated tests use the processor directly, the way a host does, but
+  they are not Cubase. Only a real session (the checklist) can confirm things
+  like the plug-in manager listing, project reload and Cubase's own
+  automation lanes.
+
+---
+
 # Phase report: Phase 6 (2026-11-20)
 
 ## What was verified, and where

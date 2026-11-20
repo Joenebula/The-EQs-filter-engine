@@ -4,11 +4,12 @@ An original parametric EQ plugin (VST3, Windows, for use in Cubase), built with
 JUCE and C++17. Personal-use project. No third-party EQ code, names or artwork
 is used; all DSP is written from published filter maths.
 
-**Status: Phase 6 of 10.** 24 working EQ bands (each with its own type, slope
+**Status: Phase 7 of 10.** 24 working EQ bands (each with its own type, slope
 and stereo / left / right / mid / side routing), dynamic EQ on any bell or
 shelf, an interactive EQ graph, a real-time spectrum analyser and an output
 meter.
-See [docs/PHASE_REPORT.md](docs/PHASE_REPORT.md).
+See [docs/PHASE_REPORT.md](docs/PHASE_REPORT.md). To try it in Cubase, follow
+[docs/CUBASE_TESTING.md](docs/CUBASE_TESTING.md).
 
 ![ParaEQ](docs/screenshot-phase6.png)
 

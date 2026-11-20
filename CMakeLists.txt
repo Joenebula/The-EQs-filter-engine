@@ -55,7 +55,7 @@ if(PEQ_BUILD_TESTS)
         Tests/EngineTests.cpp
         Tests/GraphTests.cpp
         Tests/AnalyserTests.cpp
-    Tests/DynamicsTests.cpp
+        Tests/DynamicsTests.cpp
     )
     find_package(Threads REQUIRED)
     target_link_libraries(peq_tests PRIVATE peq_dsp Threads::Threads)

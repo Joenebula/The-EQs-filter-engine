@@ -43,6 +43,11 @@ public:
     const juce::String getProgramName (int) override { return {}; }
     void changeProgramName (int, const juce::String&) override {}
 
+    /** Saved state: the parameter tree as XML plus a "stateVersion" number
+        (absent = 1, Phases 1-5; 2 = Phase 6 onwards, with dynamic EQ). */
+    static constexpr int currentStateVersion = 2;
+    static constexpr const char* stateVersionId = "stateVersion";
+
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 

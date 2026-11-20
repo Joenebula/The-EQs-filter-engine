@@ -61,3 +61,14 @@ if(PEQ_BUILD_GUI_TESTS)
     target_include_directories(peq_gui_tests PRIVATE $<TARGET_PROPERTY:ParaEQ,INCLUDE_DIRECTORIES>)
     target_compile_definitions(peq_gui_tests PRIVATE $<TARGET_PROPERTY:ParaEQ,COMPILE_DEFINITIONS>)
 endif()
+
+# Plugin-level tests: the real processor as a host sees it (parameters,
+# state, automation, sample rates, bypass, layouts, instances). No editor or
+# display needed, so they run in CI with the DSP tests.
+if(PEQ_BUILD_TESTS)
+    add_executable(peq_plugin_tests ../Tests/PluginTests.cpp)
+    target_link_libraries(peq_plugin_tests PRIVATE ParaEQ)
+    target_include_directories(peq_plugin_tests PRIVATE $<TARGET_PROPERTY:ParaEQ,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(peq_plugin_tests PRIVATE $<TARGET_PROPERTY:ParaEQ,COMPILE_DEFINITIONS>)
+    add_test(NAME peq_plugin_tests COMMAND peq_plugin_tests)
+endif()

@@ -314,15 +314,34 @@ juce::AudioProcessorEditor* ParaEQAudioProcessor::createEditor()
 
 void ParaEQAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    if (auto xml = apvts.copyState().createXml())
+    auto state = apvts.copyState();
+    state.setProperty (stateVersionId, currentStateVersion, nullptr);
+    if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
 
 void ParaEQAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    if (auto xml = getXmlFromBinary (data, sizeInBytes))
-        if (xml->hasTagName (apvts.state.getType()))
-            apvts.replaceState (juce::ValueTree::fromXml (*xml));
+    // Anything that is not our own state (corrupt data, another plugin's
+    // chunk) is ignored and the current settings are kept.
+    auto xml = getXmlFromBinary (data, sizeInBytes);
+    if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))
+        return;
+
+    auto tree = juce::ValueTree::fromXml (*xml);
+    if (! tree.isValid())
+        return;
+
+    // Version 1 (Phases 1-5) had no version tag. Parameters added since then
+    // are simply missing from old states; replaceState gives them their
+    // defaults (dynamics off), so old projects sound exactly as before.
+    // A state from a newer ParaEQ loads what this version understands.
+    const int version = (int) tree.getProperty (stateVersionId, 1);
+    juce::ignoreUnused (version);
+    tree.removeProperty (stateVersionId, nullptr);
+
+    apvts.replaceState (tree);
+    undoManager.clearUndoHistory();
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

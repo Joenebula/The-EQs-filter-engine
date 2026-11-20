@@ -29,8 +29,12 @@ namespace
     {
         return NormalisableRange<float> (
             lo, hi,
-            [] (float start, float end, float v) { return start * std::pow (end / start, v); },
-            [] (float start, float end, float x) { return std::log (x / start) / std::log (end / start); },
+            // Double precision inside, so saving and reloading a project
+            // does not nudge values (float pow/log drift by ~1 ppm per trip).
+            [] (float start, float end, float v)
+            { return (float) ((double) start * std::pow ((double) end / (double) start, (double) v)); },
+            [] (float start, float end, float x)
+            { return (float) (std::log ((double) x / (double) start) / std::log ((double) end / (double) start)); },
             [] (float start, float end, float x) { return jlimit (start, end, x); });
     }
 
