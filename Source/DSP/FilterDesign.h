@@ -51,6 +51,11 @@ struct BandParameters
     double q            = limits::defaultQ;
     int slopeDbPerOct   = 12;
     bool enabled        = true;
+
+    /** true: "analog-matched" design, whose response follows the analogue
+        filter right up to Nyquist (no high-frequency cramping). false: the
+        classic bilinear-transform design. Same number of sections either way. */
+    bool analogMatched  = false;
 };
 
 /** A cascade of up to 8 biquads (enough for a 96 dB/oct Butterworth). */
@@ -102,6 +107,32 @@ namespace FilterDesign
     BiquadCoefficients highPass1     (double fc, double fs) noexcept;
     BiquadCoefficients notch         (double fc, double fs, double q) noexcept;
     BiquadCoefficients bandPass      (double fc, double fs, double q) noexcept;
+
+    /** An analogue prototype section, H(s) = (n2 s^2 + n1 s + n0) / (d2 s^2 + d1 s + d0),
+        with s normalised to the band frequency (s = j f / fc). d2 = n2 = 0 for
+        first-order sections. */
+    struct AnalogSection
+    {
+        double n0 = 1.0, n1 = 0.0, n2 = 0.0;
+        double d0 = 1.0, d1 = 0.0, d2 = 0.0;
+
+        /** |H(j f/fc)|^2 */
+        double magnitudeSquared (double normalisedFrequency) const noexcept;
+    };
+
+    /** Analogue prototypes behind the section designs above (same shapes,
+        same meaning of fc, gain and Q). */
+    AnalogSection analogPrototype (FilterType type, int order, double gainDb, double q) noexcept;
+
+    /** Digital section whose magnitude matches the analogue prototype closely
+        at all frequencies up to Nyquist. Poles by impulse invariance; zeros
+        chosen so the magnitude is exact at DC, at Nyquist and at fc (or, for
+        a band close to Nyquist, at 0.6 fs/2; 0.75 fs/2 for bells). Based on
+        the published method of M. Vicanek, "Matched Second Order Digital
+        Filters" (2016), implemented here for a general prototype. Resonant
+        zeros are placed like the poles; their gain is then matched at DC, or
+        at fc when exactAtFc is set (used for bells). */
+    BiquadCoefficients matched (const AnalogSection& prototype, double fc, double fs, bool exactAtFc = false) noexcept;
 }
 
 } // namespace peq

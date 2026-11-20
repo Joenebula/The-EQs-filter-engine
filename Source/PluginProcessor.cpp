@@ -17,7 +17,10 @@ ParaEQAudioProcessor::ParaEQAudioProcessor()
     inputGainDb  = apvts.getRawParameterValue (peq::params::inputGain);
     outputGainDb = apvts.getRawParameterValue (peq::params::outputGain);
     bypassParam  = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (peq::params::bypass));
-    jassert (inputGainDb != nullptr && outputGainDb != nullptr && bypassParam != nullptr);
+    analogMatch  = apvts.getRawParameterValue (peq::params::analogMatch);
+    gainScale    = apvts.getRawParameterValue (peq::params::gainScale);
+    jassert (gainScale != nullptr);
+    jassert (inputGainDb != nullptr && outputGainDb != nullptr && bypassParam != nullptr && analogMatch != nullptr);
 
     // Fixed size, allocated once: the editor may read these at any time, so
     // they are never resized while the plugin exists (~0.7 s at 192 kHz).
@@ -53,6 +56,8 @@ ParaEQAudioProcessor::ParaEQAudioProcessor()
 void ParaEQAudioProcessor::updateEngine() noexcept
 {
     const auto& slopes = peq::limits::slopesDbPerOct;
+    const bool matched = analogMatch->load() >= 0.5f;
+    const double scale = juce::jlimit (0.0, 2.0, (double) gainScale->load() / 100.0);
 
     for (int b = 0; b < peq::FilterEngine::numBands; ++b)
     {
@@ -62,9 +67,10 @@ void ParaEQAudioProcessor::updateEngine() noexcept
         p.type        = (peq::FilterType) juce::jlimit (0, (int) peq::FilterType::NumTypes - 1,
                                                         juce::roundToInt (bp.type->load()));
         p.frequencyHz = (double) bp.freq->load();
-        p.gainDb      = (double) bp.gain->load();
+        p.gainDb      = (double) bp.gain->load() * scale;
         p.q           = (double) bp.q->load();
         p.slopeDbPerOct = slopes[(size_t) juce::jlimit (0, (int) slopes.size() - 1, juce::roundToInt (bp.slope->load()))];
+        p.analogMatched = matched;
         const auto mode = (peq::ChannelMode) juce::jlimit (0, (int) peq::ChannelMode::NumModes - 1,
                                                            juce::roundToInt (bp.mode->load()));
         engine.setBand (b, p, mode);
@@ -365,8 +371,21 @@ void ParaEQAudioProcessor::setStateInformation (const void* data, int sizeInByte
     // defaults (dynamics off), so old projects sound exactly as before.
     // A state from a newer ParaEQ loads what this version understands.
     const int version = (int) tree.getProperty (stateVersionId, 1);
-    juce::ignoreUnused (version);
     tree.removeProperty (stateVersionId, nullptr);
+
+    // Version 3 added analog-matched filters, on by default. Projects saved
+    // before keep the classic design, so they sound exactly as they did.
+    if (version < 3)
+    {
+        auto param = tree.getChildWithProperty ("id", peq::params::analogMatch);
+        if (! param.isValid())
+        {
+            param = juce::ValueTree ("PARAM");
+            param.setProperty ("id", peq::params::analogMatch, nullptr);
+            tree.appendChild (param, nullptr);
+        }
+        param.setProperty ("value", 0.0f, nullptr);
+    }
 
     // A/B compare: the inactive slot travels as a child; not part of the
     // parameter tree itself.

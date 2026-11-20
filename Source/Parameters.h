@@ -21,6 +21,12 @@ namespace peq::params
     inline constexpr const char* inputGain  = "input_gain";
     inline constexpr const char* outputGain = "output_gain";
     inline constexpr const char* bypass     = "bypass";
+    /** Analog-matched filter designs (no high-frequency cramping). Added in
+        1.1; projects saved before it load with it off so they sound the same. */
+    inline constexpr const char* analogMatch = "analog_match";
+    /** Scales every band's gain together, 0-200 % (100 % = as set). Added
+        in 1.2; missing from older states and presets, so they get 100 %. */
+    inline constexpr const char* gainScale   = "gain_scale";
 
     inline constexpr int numBands = FilterEngine::numBands;
 

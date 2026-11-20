@@ -1,3 +1,96 @@
+# Version 1.2: Gain Scale and faster editing (2026-11-20)
+
+## What changed
+
+- **Gain Scale** (new automatable parameter `gain_scale`, 0 to 200 %, knob
+  next to IN): multiplies every band's gain. The curves and nodes show the
+  scaled result; dragging a node follows the mouse in that scaled view.
+  Dynamic range is not scaled. Saved in presets; projects and presets from
+  before it load at 100 % (same sound).
+- **Alt-drag** a node: up/down changes Q (100 px = a factor of 2), gain left
+  alone. One undo step.
+- **Arrow keys** nudge the selected band: a semitone or 0.5 dB (Shift: a
+  quarter semitone or 0.1 dB). A burst of presses is one undo step.
+- **Cursor readout**: hovering an empty spot shows frequency, note (with
+  cents) and level, e.g. "440 Hz   A4   +3.0 dB".
+- Top bar tightened so the preset name still fits at 1040 px and 760 px.
+- Version 1.2.0.
+
+## Verified (Linux; Windows: see the pull request's checks)
+
+| Check | Result |
+|---|---|
+| DSP tests | 52 tests, 0 failures (unchanged) |
+| Plugin tests | **82 checks, 0 failures** (3 new: +6 dB bell measures +3 / 0 / +12 dB at 50 / 0 / 200 %; new instance at 100 %; old project loads at 100 %) |
+| GUI tests (Xvfb) | **All pass** (8 new: arrow keys, Shift step, grouped undo, node at scaled gain, Alt-drag doubles Q without touching gain, cursor readout) |
+| Cubase | **Not tried by a person yet.** |
+
+---
+
+# Version 1.1: analog-matched curves (2026-11-20)
+
+## Why
+
+The spec asks for "accurate frequency response" and "oversampling options
+where justified". The biggest accuracy gap in 1.0 was high-frequency
+**cramping**: the classic (bilinear) filter designs squeeze bands towards
+Nyquist, so at 44.1/48 kHz a 10 kHz bell came out up to 3.8 dB off its
+intended shape, and wide bells or shelves near the top were off by much more.
+Oversampling would fix this too, but it adds latency and CPU. Matched designs
+fix it with zero latency and the same filter structure.
+
+## What changed
+
+- `FilterDesign::matched()`: poles by impulse invariance, zeros fitted so the
+  magnitude is exact at DC, at Nyquist and at the band frequency (after the
+  published method of M. Vicanek, "Matched Second Order Digital Filters",
+  2016, generalised here). Special handling: high-pass keeps its double zero
+  at DC, the notch keeps its zeros on the unit circle, resonant zeros are
+  placed like poles, cuts are inverted boosts, and high shelves are derived
+  from low shelves (all exact identities of the analogue prototypes).
+- New global parameter **Analog Match** (`analog_match`), with an **Analog**
+  button in the top bar. On for new instances. The graph draws whichever
+  design is active.
+- State version 3. Projects from 1.0 (version 2 or older) load with Analog
+  Match **off**, so they sound exactly as before. Presets do not include it.
+- Switching it while playing is click-free (coefficient ramp).
+- Version 1.1.0.
+
+## Verified (Linux; Windows: see the pull request's checks)
+
+| Check | Result |
+|---|---|
+| DSP tests | **52 tests, 0 failures** (8 new matched-design tests) |
+| Plugin tests | **79 checks, 0 failures** (5 new) |
+| GUI tests (Xvfb) | **All 30 checks pass**; the Analog button fits at full and minimum width |
+| Cubase | **Not tried by a person yet.** |
+
+Measured errors against the analogue response, 20 Hz to 20 kHz:
+
+- 10 kHz bell, +12 dB, Q 1 at 44.1 kHz: **0.68 dB** (classic: 3.82 dB).
+- 15 kHz bell, +6 dB, Q 1 at 44.1 kHz, heard at 10 kHz: matched 4.18 dB,
+  analogue 3.52 dB, classic 1.68 dB (measured through the plugin).
+- Everyday bells and shelves (Q 0.5 to 2, up to +/-12 dB, centre up to
+  16 kHz, 44.1/48 kHz): worst **1.41 dB**, typical well under 0.5 dB.
+- Whole grid (all types, Q 0.3 to 8, +/-24 dB, centre up to 0.49 fs, slopes up
+  to 24 dB/oct): the matched design is never worse than the classic one.
+  Worst cases are extreme settings right next to Nyquist (for example a very
+  wide notch centred at 21.6 kHz: 12.7 dB, classic 23.5 dB).
+- 20,000 random settings at 7 sample rates: always stable and finite.
+- Bells are exact at their centre up to 0.375 fs (16.5 kHz at 44.1 kHz); all
+  bells, shelves, low-passes and notches are exact at DC.
+- CPU unchanged (fully loaded instance 1.63 % of one core in the Linux
+  release build).
+
+### Honest notes
+
+- Matched designs are much closer to analogue, not identical: a biquad can't
+  match an analogue band perfectly when the band sits right at the top.
+- Phase near the top differs slightly from the classic design (both are
+  minimum-phase, zero latency).
+
+---
+
 # Phase report: Phases 9 and 10 (2026-11-20)
 
 ## What was verified, and where

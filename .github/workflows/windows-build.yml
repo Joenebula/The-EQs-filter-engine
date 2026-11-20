@@ -61,6 +61,29 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Get-ChildItem build\installer
 
+      - name: Test the installer over an old manual install
+        shell: pwsh
+        run: |
+          # Simulate the case that broke: ParaEQ.vst3 left as a single file.
+          $target = "${env:CommonProgramFiles}\VST3\ParaEQ.vst3"
+          New-Item -ItemType Directory -Force -Path "${env:CommonProgramFiles}\VST3" | Out-Null
+          if (Test-Path $target) { Remove-Item -Recurse -Force $target }
+          Set-Content -Path $target -Value "old plugin file"
+          $p = Start-Process -FilePath build\installer\ParaEQ-Setup-Windows-x64.exe -Wait -PassThru `
+                 -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/LOG=installer-test.log'
+          Write-Host "installer exit code: $($p.ExitCode)"
+          $binary = Join-Path $target "Contents\x86_64-win\ParaEQ.vst3"
+          if ($p.ExitCode -ne 0 -or -not (Test-Path $binary -PathType Leaf)) {
+            Get-Content installer-test.log -Tail 40
+            exit 1
+          }
+          Write-Host "OK: installed over a stray ParaEQ.vst3 file"
+          # Running it again over the installed folder must work too.
+          $p = Start-Process -FilePath build\installer\ParaEQ-Setup-Windows-x64.exe -Wait -PassThru `
+                 -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+          if ($p.ExitCode -ne 0 -or -not (Test-Path $binary -PathType Leaf)) { exit 1 }
+          Write-Host "OK: reinstalled over an existing install"
+
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:

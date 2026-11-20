@@ -40,6 +40,15 @@ CloseApplications=yes
 [Messages]
 WelcomeLabel2=This installs ParaEQ {#AppVersion}, a 24-band parametric EQ (VST3, 64-bit).%n%nThe plugin goes into the standard VST3 folder (C:\Program Files\Common Files\VST3) where Cubase finds it.%n%nPlease close Cubase before continuing.
 
+[InstallDelete]
+; Clear out any earlier ParaEQ first. A manual install may have left
+; ParaEQ.vst3 as a single file (the plugin binary copied on its own) instead
+; of the bundle folder, and Windows then refuses to create the folder
+; (error 183). Removing it here, before files are copied, also drops files an
+; older version had that this one no longer ships.
+Type: files;          Name: "{commoncf64}\VST3\ParaEQ.vst3"
+Type: filesandordirs; Name: "{commoncf64}\VST3\ParaEQ.vst3"
+
 [Files]
 Source: "{#VST3Dir}\ParaEQ.vst3\*"; DestDir: "{commoncf64}\VST3\ParaEQ.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#Manual}"; DestDir: "{app}"; DestName: "ParaEQ-Manual.html"; Flags: ignoreversion
