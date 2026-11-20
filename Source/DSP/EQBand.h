@@ -1,6 +1,6 @@
 #pragma once
 
-#include "FilterDesign.h"
+#include "Dynamics.h"
 
 #include <array>
 
@@ -59,6 +59,17 @@ public:
     /** The settings currently being applied (smoothed values). */
     BandParameters currentParameters() const noexcept;
 
+    /** Dynamic EQ settings (see DynamicSettings). Call from the audio thread,
+        like setTarget(). Ignored for types without gain. */
+    void setDynamics (const DynamicSettings& settings) noexcept;
+    const DynamicSettings& getDynamics() const noexcept { return dyn; }
+
+    /** The gain change the dynamics are applying right now, in dB. */
+    double currentDynamicOffsetDb() const noexcept { return dynOffsetDb; }
+
+    /** The detector's current level in dBFS (for the activity display). */
+    double currentDetectorLevelDb() const noexcept;
+
     /** Smoothing times, adjustable for tests. */
     void setSmoothingTimes (double parameterSeconds, double fadeSeconds) noexcept;
 
@@ -75,6 +86,11 @@ private:
     void updateCoefficients() noexcept;
     void beginFade (double newTarget) noexcept;
     double desiredMix() const noexcept;
+    bool dynamicsActive() const noexcept;
+    /** Runs the detector over a segment (read only); returns true if the
+        gain offset moved enough to need new coefficients. */
+    bool updateDynamics (double* const* channels, int firstChannel, int numChannels, int pos, int len) noexcept;
+    void clearDynamics() noexcept;
     void processBlockSegment (double* const* channels, int firstChannel, int numChannels, int start, int length) noexcept;
 
     double sampleRate = 48000.0;
@@ -90,6 +106,15 @@ private:
     double mix = 0.0, mixTarget = 0.0;
     bool structurePending = false;
     bool prepared = false;
+
+    // Dynamic EQ.
+    DynamicSettings dyn {};
+    double attackCoeff = 1.0, releaseCoeff = 1.0, rmsCoeff = 1.0;
+    double meanSquare = 0.0;      // short RMS average of the detector output
+    double envelope = 0.0;        // meanSquare after attack/release
+    double dynOffsetDb = 0.0;
+    BiquadCoefficients detectorCoeffs {};
+    std::array<BiquadState, maxChannels> detectorState {};
 
     CascadeCoefficients coeffs {};
     std::array<std::array<BiquadState, CascadeCoefficients::maxSections>, maxChannels> state {};

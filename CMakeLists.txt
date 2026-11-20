@@ -39,6 +39,7 @@ add_library(peq_dsp STATIC
     Source/DSP/FilterEngine.h
     Source/DSP/FilterEngine.cpp
     Source/DSP/SampleFifo.h
+    Source/DSP/Dynamics.h
     Source/DSP/SpectrumAnalyser.h
     Source/DSP/SpectrumAnalyser.cpp
 )
@@ -54,6 +55,7 @@ if(PEQ_BUILD_TESTS)
         Tests/EngineTests.cpp
         Tests/GraphTests.cpp
         Tests/AnalyserTests.cpp
+    Tests/DynamicsTests.cpp
     )
     find_package(Threads REQUIRED)
     target_link_libraries(peq_tests PRIVATE peq_dsp Threads::Threads)

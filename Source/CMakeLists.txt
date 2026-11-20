@@ -34,7 +34,8 @@ target_sources(ParaEQ PRIVATE
     GUI/EQGraph.h
     GUI/EQGraph.cpp
     GUI/BandPanel.h
-    GUI/BandPanel.cpp)
+    GUI/BandPanel.cpp
+    GUI/OutputMeter.h)
 
 target_compile_definitions(ParaEQ PUBLIC
     JUCE_WEB_BROWSER=0

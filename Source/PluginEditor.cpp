@@ -23,12 +23,14 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
       processor (p),
       bands (peq::gui::makeBandRefs (p.getState())),
       graph (p, bands),
-      bandPanel (p, bands)
+      bandPanel (p, bands),
+      outputMeter ([&p] (int ch) { return p.takeOutputPeak (ch); })
 {
     setLookAndFeel (&lookAndFeel);
     auto& state = processor.getState();
 
     addAndMakeVisible (graph);
+    addAndMakeVisible (outputMeter);
     addAndMakeVisible (bandPanel);
 
     graph.onSelectionChanged = [this] (int band) { bandPanel.showBand (band); };
@@ -257,7 +259,9 @@ void ParaEQAudioProcessorEditor::resized()
     bar.removeFromLeft (compact ? 100 : 230);  // title
 
     bypassButton.setBounds (bar.removeFromRight (70));
-    bar.removeFromRight (compact ? 8 : 14);
+    bar.removeFromRight (compact ? 6 : 10);
+    outputMeter.setBounds (bar.removeFromRight (14).withSizeKeepingCentre (14, juce::jmin (bar.getHeight() + 6, 34)));
+    bar.removeFromRight (compact ? 6 : 10);
     outGainKnob.setBounds (bar.removeFromRight (compact ? 88 : 100));
     outGainLabel.setBounds (bar.removeFromRight (34));
     bar.removeFromRight (compact ? 4 : 10);

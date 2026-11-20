@@ -2,6 +2,7 @@
 
 #include "../Parameters.h"
 #include "../DSP/FilterDesign.h"
+#include "../DSP/Dynamics.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -23,6 +24,11 @@ struct BandParamRefs
     juce::RangedAudioParameter* q = nullptr;
     juce::RangedAudioParameter* slope = nullptr;
     juce::RangedAudioParameter* mode = nullptr;
+    juce::RangedAudioParameter* dyn = nullptr;
+    juce::RangedAudioParameter* thr = nullptr;
+    juce::RangedAudioParameter* range = nullptr;
+    juce::RangedAudioParameter* att = nullptr;
+    juce::RangedAudioParameter* rel = nullptr;
 
     static float get (const juce::RangedAudioParameter* p) noexcept
     {
@@ -46,6 +52,9 @@ struct BandParamRefs
     bool isEnabled() const noexcept   { return get (on) >= 0.5f; }
     FilterType filterType() const noexcept { return (FilterType) juce::roundToInt (get (type)); }
     ChannelMode channelMode() const noexcept { return (ChannelMode) juce::roundToInt (get (mode)); }
+    bool isDynamic() const noexcept   { return get (dyn) >= 0.5f; }
+    /** Dynamics switched on and the type supports them. */
+    bool dynamicsActive() const noexcept { return isDynamic() && dynamics::typeSupportsDynamics (filterType()); }
 
     int slopeDbPerOct() const noexcept
     {
@@ -89,6 +98,11 @@ inline AllBands makeBandRefs (juce::AudioProcessorValueTreeState& state)
         r.q = get (BandField::q);
         r.slope = get (BandField::slope);
         r.mode = get (BandField::mode);
+        r.dyn = get (BandField::dyn);
+        r.thr = get (BandField::thr);
+        r.range = get (BandField::range);
+        r.att = get (BandField::att);
+        r.rel = get (BandField::rel);
     }
     return refs;
 }

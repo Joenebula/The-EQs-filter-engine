@@ -42,6 +42,11 @@ ParaEQAudioProcessor::ParaEQAudioProcessor()
         bp.q     = get (BandField::q);
         bp.slope = get (BandField::slope);
         bp.mode  = get (BandField::mode);
+        bp.dyn   = get (BandField::dyn);
+        bp.thr   = get (BandField::thr);
+        bp.range = get (BandField::range);
+        bp.att   = get (BandField::att);
+        bp.rel   = get (BandField::rel);
     }
 }
 
@@ -63,6 +68,14 @@ void ParaEQAudioProcessor::updateEngine() noexcept
         const auto mode = (peq::ChannelMode) juce::jlimit (0, (int) peq::ChannelMode::NumModes - 1,
                                                            juce::roundToInt (bp.mode->load()));
         engine.setBand (b, p, mode);
+
+        peq::DynamicSettings d;
+        d.enabled     = bp.dyn->load() >= 0.5f;
+        d.thresholdDb = (double) bp.thr->load();
+        d.rangeDb     = (double) bp.range->load();
+        d.attackMs    = (double) bp.att->load();
+        d.releaseMs   = (double) bp.rel->load();
+        engine.setBandDynamics (b, d);
     }
 }
 
@@ -203,6 +216,9 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
         engineIdle = true;
         pushToAnalyser (preFifo, buffer, numChannels);
         pushToAnalyser (postFifo, buffer, numChannels);
+        for (auto& g : dynamicGainDb)
+            g.store (0.0f, std::memory_order_relaxed);
+        publishMeters (buffer, numChannels);
         return;
     }
 
@@ -247,6 +263,30 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
     }
 
     pushToAnalyser (postFifo, buffer, numChannels);
+
+    for (int b = 0; b < peq::FilterEngine::numBands; ++b)
+        dynamicGainDb[(size_t) b].store ((float) engine.dynamicOffsetDb (b), std::memory_order_relaxed);
+    publishMeters (buffer, numChannels);
+}
+
+void ParaEQAudioProcessor::publishMeters (const juce::AudioBuffer<double>& buffer, int numChannels) noexcept
+{
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        // Mono: show the one channel on both meters.
+        const int src = juce::jmin (ch, numChannels - 1);
+        if (src < 0)
+            return;
+        double peak = 0.0;
+        const double* d = buffer.getReadPointer (src);
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+            peak = juce::jmax (peak, std::abs (d[i]));
+
+        // Keep the highest value until the editor takes it.
+        auto& slot = outputPeak[(size_t) ch];
+        float prev = slot.load (std::memory_order_relaxed);
+        while ((float) peak > prev && ! slot.compare_exchange_weak (prev, (float) peak, std::memory_order_relaxed)) {}
+    }
 }
 
 void ParaEQAudioProcessor::pushToAnalyser (peq::SampleFifo& fifo, const juce::AudioBuffer<double>& buffer,

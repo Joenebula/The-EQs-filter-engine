@@ -33,7 +33,9 @@ struct AnalyserSettings
 /** The interactive frequency-response graph.
 
     Draws a log-frequency / dB grid, each band's own curve (filled, in its
-    colour), the combined curve and a draggable node per band.
+    colour), the combined curve and a draggable node per band. Dynamic bands
+    also show how far their range reaches (faint dotted curve and a bar from
+    the node) and, live, the curve they are applying right now.
 
     Mouse
     - Click empty space: add a band there (then keep dragging to place it).
@@ -86,6 +88,10 @@ public:
         timer; public for tests). Returns true if a new spectrum was made. */
     bool updateAnalyser (double elapsedSeconds);
 
+    /** Re-reads parameters and live dynamic gains; redraws if anything moved
+        (called by the timer; public for tests). */
+    bool pollParameters();
+
     /** Analyser display range: 0 dBFS at the top, this at the bottom. */
     static constexpr double analyserFloorDb = -90.0;
 
@@ -135,6 +141,10 @@ private:
 
     // Curves in dB, one value per pixel column of the plot.
     std::vector<std::vector<float>> bandCurves;
+    // Dynamic bands: the curve at the gain the dynamics apply right now, and
+    // at the end of their range (empty when not dynamic).
+    std::vector<std::vector<float>> liveCurves, rangeCurves;
+    std::vector<float> liveDynGain;   // dB, per band, as last read
     std::vector<float> totalCurve;
     int curveWidth = 0;
     double curveSampleRate = 48000.0;

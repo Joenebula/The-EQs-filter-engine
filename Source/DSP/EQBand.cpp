@@ -29,6 +29,7 @@ void EQBand::prepare (double newSampleRate) noexcept
     sampleRate = newSampleRate > 0.0 ? newSampleRate : 48000.0;
     mixStep = 1.0 / std::max (1.0, fadeTime * sampleRate);
     prepared = true;
+    setDynamics (dyn);       // recompute time constants for the new rate
     setTarget (requested);   // re-clamp the user's settings for the new rate
     snapToTarget();
 }
@@ -45,6 +46,80 @@ void EQBand::reset() noexcept
     for (auto& ch : state)
         for (auto& s : ch)
             s.reset();
+    for (auto& s : detectorState)
+        s.reset();
+    meanSquare = envelope = 0.0;
+}
+
+//==============================================================================
+void EQBand::setDynamics (const DynamicSettings& settings) noexcept
+{
+    dyn = dynamics::sanitise (settings);
+    // One-pole time constants on the detector power.
+    attackCoeff  = 1.0 - std::exp (-1.0 / (dyn.attackMs * 0.001 * sampleRate));
+    releaseCoeff = 1.0 - std::exp (-1.0 / (dyn.releaseMs * 0.001 * sampleRate));
+}
+
+bool EQBand::dynamicsActive() const noexcept
+{
+    return dyn.enabled && dynamics::typeSupportsDynamics (activeType);
+}
+
+double EQBand::currentDetectorLevelDb() const noexcept
+{
+    // Mean square of a sine is half its peak squared: +3 dB makes a sine
+    // read its peak level, so the threshold is in plain dBFS.
+    return 10.0 * std::log10 (2.0 * envelope + 1.0e-20);
+}
+
+void EQBand::clearDynamics() noexcept
+{
+    for (auto& s : detectorState)
+        s.reset();
+    meanSquare = envelope = 0.0;
+    dynOffsetDb = 0.0;
+}
+
+bool EQBand::updateDynamics (double* const* channels, int firstChannel, int numChannels, int pos, int len) noexcept
+{
+    double newOffset = 0.0;
+
+    if (dynamicsActive())
+    {
+        // Linked detection: the loudest channel this band works on drives it.
+        // Two stages: a short RMS average (about two periods of the band
+        // frequency) turns the detector output into a steady level, then the
+        // attack/release smoothing shapes how fast the gain follows it.
+        double ms = meanSquare, env = envelope;
+        for (int i = 0; i < len; ++i)
+        {
+            double power = 0.0;
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                const double y = detectorState[(size_t) (firstChannel + ch)].process (detectorCoeffs, channels[ch][pos + i]);
+                power = std::max (power, y * y);
+            }
+            ms  += rmsCoeff * (power - ms);
+            env += (ms > env ? attackCoeff : releaseCoeff) * (ms - env);
+        }
+        meanSquare = ms < 1.0e-30 ? 0.0 : ms;
+        envelope = env < 1.0e-30 ? 0.0 : env;
+        newOffset = dynamics::gainOffset (currentDetectorLevelDb(), dyn);
+    }
+    else if (dynOffsetDb == 0.0)
+    {
+        return false;
+    }
+    else
+    {
+        clearDynamics();
+        return true;
+    }
+
+    if (std::abs (newOffset - dynOffsetDb) < 1.0e-3)
+        return false;
+    dynOffsetDb = newOffset;
+    return true;
 }
 
 double EQBand::desiredMix() const noexcept
@@ -100,6 +175,7 @@ void EQBand::snapToTarget() noexcept
     mix = mixTarget = desiredMix();
 
     reset();
+    clearDynamics();
     updateCoefficients();
 }
 
@@ -109,12 +185,17 @@ void EQBand::applyStructure() noexcept
     activeSlope = target.slopeDbPerOct;
     structurePending = false;
     reset();
+    clearDynamics();
     updateCoefficients();
 }
 
 void EQBand::updateCoefficients() noexcept
 {
     FilterDesign::design (currentParameters(), sampleRate, coeffs);
+    const double f = std::exp (logFreq.current);
+    detectorCoeffs = dynamics::detectorFilter (activeType, f, std::exp (logQ.current), sampleRate);
+    const double rmsSeconds = std::clamp (2.0 / f, 0.0005, 0.020);
+    rmsCoeff = 1.0 - std::exp (-1.0 / (rmsSeconds * sampleRate));
 }
 
 BandParameters EQBand::currentParameters() const noexcept
@@ -123,7 +204,7 @@ BandParameters EQBand::currentParameters() const noexcept
     p.type          = activeType;
     p.slopeDbPerOct = activeSlope;
     p.frequencyHz   = std::exp (logFreq.current);
-    p.gainDb        = gainDb.current;
+    p.gainDb        = std::clamp (gainDb.current + dynOffsetDb, limits::minGainDb, limits::maxGainDb);
     p.q             = std::exp (logQ.current);
     p.enabled       = target.enabled;
     return p;
@@ -207,6 +288,11 @@ void EQBand::processBlockSegment (double* const* channels, int firstChannel, int
                 updateCoefficients();
             }
             reset();
+            if (dynOffsetDb != 0.0)
+            {
+                dynOffsetDb = 0.0;
+                updateCoefficients();
+            }
             return;
         }
 
@@ -226,7 +312,14 @@ void EQBand::processBlockSegment (double* const* channels, int firstChannel, int
         // a stepped coefficient update would cause, at the cost of only one
         // filter design per segment.
         const CascadeCoefficients startCoeffs = coeffs;
-        const bool ramping = advanceParameters (len);
+        const bool dynamicChanged = updateDynamics (channels, firstChannel, numChannels, pos, len);
+        bool ramping = advanceParameters (len);
+        if (dynamicChanged)
+        {
+            if (! ramping)
+                updateCoefficients();
+            ramping = true;
+        }
         const int numSections = coeffs.numSections;
 
         std::array<BiquadCoefficients, CascadeCoefficients::maxSections> delta {};

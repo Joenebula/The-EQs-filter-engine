@@ -273,21 +273,36 @@ void EQGraph::timerCallback()
     // Polling is simpler and safer than parameter listeners here: host
     // automation arrives on the audio thread, and 30 checks a second of ~200
     // floats costs nothing. The curves are only recomputed when a value moved.
-    if (refreshFromParameters (false))
-    {
-        if (selected >= 0 && ! bands[(size_t) selected].isUsed())
-            setSelectedBand (-1);
-        repaint();
-    }
+    pollParameters();
+}
+
+bool EQGraph::pollParameters()
+{
+    if (! refreshFromParameters (false))
+        return false;
+    if (selected >= 0 && ! bands[(size_t) selected].isUsed())
+        setSelectedBand (-1);
+    repaint();
+    return true;
 }
 
 bool EQGraph::refreshFromParameters (bool force)
 {
     std::vector<float> values;
-    values.reserve ((size_t) FilterEngine::numBands * 8);
-    for (const auto& r : bands)
-        for (auto* p : { r.used, r.on, r.type, r.freq, r.gain, r.q, r.slope, r.mode })
+    values.reserve ((size_t) FilterEngine::numBands * 11);
+    liveDynGain.resize ((size_t) FilterEngine::numBands, 0.0f);
+    for (int b = 0; b < FilterEngine::numBands; ++b)
+    {
+        const auto& r = bands[(size_t) b];
+        for (auto* p : { r.used, r.on, r.type, r.freq, r.gain, r.q, r.slope, r.mode, r.dyn, r.range })
             values.push_back (p->getValue());
+
+        // Live dynamic gain, in 0.1 dB steps so the curves are only redrawn
+        // when the change is visible.
+        const float live = r.dynamicsActive() && r.isEnabled() ? processor.getDynamicGainDb (b) : 0.0f;
+        liveDynGain[(size_t) b] = live;
+        values.push_back (std::round (live * 10.0f));
+    }
 
     const double sr = processor.getCurrentSampleRateOrDefault();
     if (! force && values == lastValues && juce::exactlyEqual (sr, lastSampleRate))
@@ -306,11 +321,31 @@ void EQGraph::recomputeCurves()
     curveSampleRate = processor.getCurrentSampleRateOrDefault();
 
     totalCurve.assign ((size_t) curveWidth, 0.0f);
+    liveCurves.resize (bandCurves.size());
+    rangeCurves.resize (bandCurves.size());
+    liveDynGain.resize ((size_t) FilterEngine::numBands, 0.0f);
+
+    auto compute = [this] (const BandParameters& params, std::vector<float>& out)
+    {
+        CascadeCoefficients c;
+        FilterDesign::design (params, curveSampleRate, c);
+        out.resize ((size_t) curveWidth);
+        for (int x = 0; x < curveWidth; ++x)
+        {
+            const double hz = graph::xToFreq ((double) x, (double) curveWidth);
+            out[(size_t) x] = hz < 0.5 * curveSampleRate ? (float) c.magnitudeDb (hz, curveSampleRate)
+                                                         : out[(size_t) juce::jmax (0, x - 1)];
+        }
+    };
 
     for (int b = 0; b < FilterEngine::numBands; ++b)
     {
         auto& curve = bandCurves[(size_t) b];
+        auto& live = liveCurves[(size_t) b];
+        auto& reach = rangeCurves[(size_t) b];
         const auto& r = bands[(size_t) b];
+        live.clear();
+        reach.clear();
         if (! r.isUsed())
         {
             curve.clear();
@@ -318,17 +353,30 @@ void EQGraph::recomputeCurves()
         }
 
         auto params = r.toBandParameters();
-        CascadeCoefficients c;
-        FilterDesign::design (params, curveSampleRate, c);
+        compute (params, curve);
 
-        curve.resize ((size_t) curveWidth);
-        for (int x = 0; x < curveWidth; ++x)
+        const float dynGain = liveDynGain[(size_t) b];
+        if (r.dynamicsActive())
         {
-            const double hz = graph::xToFreq ((double) x, (double) curveWidth);
-            const float db = hz < 0.5 * curveSampleRate ? (float) c.magnitudeDb (hz, curveSampleRate) : curve[(size_t) juce::jmax (0, x - 1)];
-            curve[(size_t) x] = db;
-            if (r.isEnabled())
-                totalCurve[(size_t) x] += db;
+            auto end = params;
+            end.gainDb = juce::jlimit (limits::minGainDb, limits::maxGainDb,
+                                       params.gainDb + (double) BandParamRefs::get (r.range));
+            compute (end, reach);
+
+            if (std::abs (dynGain) >= 0.05f)
+            {
+                auto now = params;
+                now.gainDb = juce::jlimit (limits::minGainDb, limits::maxGainDb, params.gainDb + (double) dynGain);
+                compute (now, live);
+            }
+        }
+
+        // The combined curve shows what is applied right now.
+        if (r.isEnabled())
+        {
+            const auto& heard = live.empty() ? curve : live;
+            for (int x = 0; x < curveWidth; ++x)
+                totalCurve[(size_t) x] += heard[(size_t) x];
         }
     }
 }
@@ -570,6 +618,48 @@ void EQGraph::drawCurves (juce::Graphics& g, juce::Rectangle<float> plot) const
         {
             g.strokePath (line, juce::PathStrokeType (isSelected ? 1.8f : 1.2f));
         }
+
+        // Dynamic band: where the range can take it (dotted), and where the
+        // dynamics have it right now (bright, with the area between shaded).
+        auto pathOf = [&] (const std::vector<float>& c)
+        {
+            juce::Path p;
+            for (int x = 0; x <= lastX; ++x)
+            {
+                const float px = plot.getX() + (float) x, py = yFor (c[(size_t) x]);
+                if (x == 0) p.startNewSubPath (px, py); else p.lineTo (px, py);
+            }
+            return p;
+        };
+
+        const auto& reach = rangeCurves.size() > (size_t) b ? rangeCurves[(size_t) b] : curve;
+        if (active && &reach != &curve && ! reach.empty())
+        {
+            juce::Path dotted;
+            const float dots[] = { 1.5f, 3.5f };
+            juce::PathStrokeType (1.2f).createDashedStroke (dotted, pathOf (reach), dots, 2);
+            g.setColour (colour.withAlpha (isSelected ? 0.75f : 0.4f));
+            g.fillPath (dotted);
+        }
+
+        const auto& live = liveCurves.size() > (size_t) b ? liveCurves[(size_t) b] : curve;
+        if (active && &live != &curve && ! live.empty())
+        {
+            juce::Path between;
+            for (int x = 0; x <= lastX; ++x)
+            {
+                const float px = plot.getX() + (float) x;
+                if (x == 0) between.startNewSubPath (px, yFor (curve[0]));
+                else        between.lineTo (px, yFor (curve[(size_t) x]));
+            }
+            for (int x = lastX; x >= 0; --x)
+                between.lineTo (plot.getX() + (float) x, yFor (live[(size_t) x]));
+            between.closeSubPath();
+            g.setColour (colour.withAlpha (0.28f));
+            g.fillPath (between);
+            g.setColour (colour.brighter (0.4f));
+            g.strokePath (pathOf (live), juce::PathStrokeType (1.6f));
+        }
     }
 
     // Combined response.
@@ -614,6 +704,22 @@ void EQGraph::drawNodes (juce::Graphics& g) const
                 g.drawEllipse (juce::Rectangle<float> (radius * 2.0f + 6.0f, radius * 2.0f + 6.0f).withCentre (pos), 1.6f);
             }
 
+            if (r.dynamicsActive() && active)
+            {
+                // Range bar from the node to where the range ends, and a
+                // marker at the gain the dynamics apply right now.
+                const double gain = (double) BandParamRefs::get (r.gain);
+                const float yEnd = juce::jlimit (plotArea().getY(), plotArea().getBottom(),
+                                                 yForDb (gain + (double) BandParamRefs::get (r.range)));
+                g.setColour (colour.withAlpha (0.35f));
+                g.fillRoundedRectangle (juce::Rectangle<float> (pos.x - 2.5f, juce::jmin (pos.y, yEnd), 5.0f, std::abs (yEnd - pos.y)), 2.5f);
+
+                const float live = (size_t) b < liveDynGain.size() ? liveDynGain[(size_t) b] : 0.0f;
+                const float yLive = juce::jlimit (plotArea().getY(), plotArea().getBottom(), yForDb (gain + (double) live));
+                g.setColour (colour.brighter (0.5f));
+                g.fillRoundedRectangle (juce::Rectangle<float> (pos.x - 7.0f, yLive - 1.5f, 14.0f, 3.0f), 1.5f);
+            }
+
             g.setColour (colour.withAlpha (active ? 1.0f : 0.6f));
             g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (pos));
 
@@ -651,6 +757,9 @@ void EQGraph::drawReadout (juce::Graphics& g, int band) const
     line2 << "   Q " << juce::String ((double) BandParamRefs::get (r.q), 2);
     if (typeHasSlope (type))
         line2 << "   " << juce::String (r.slopeDbPerOct()) << " dB/oct";
+    if (r.dynamicsActive())
+        line1 << "  Dyn " << formatGain ((double) BandParamRefs::get (r.range))
+              << " @ " << juce::String ((double) BandParamRefs::get (r.thr), 1) << " dB";
 
     const auto f1 = theme::font (12.0f, true), f2 = theme::font (12.0f);
     const float w = juce::jmax (juce::GlyphArrangement::getStringWidth (f1, line1),

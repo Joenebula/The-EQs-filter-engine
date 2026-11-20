@@ -1,5 +1,7 @@
 #include "Parameters.h"
 
+#include "DSP/Dynamics.h"
+
 #include <cmath>
 
 namespace peq::params
@@ -9,7 +11,7 @@ using namespace juce;
 
 String bandID (int bandIndex, BandField field)
 {
-    static const char* const suffix[] = { "on", "type", "freq", "gain", "q", "slope", "mode", "used" };
+    static const char* const suffix[] = { "on", "type", "freq", "gain", "q", "slope", "mode", "used", "dyn", "thr", "range", "att", "rel" };
     return "b" + String (bandIndex + 1).paddedLeft ('0', 2) + "_" + suffix[(int) field];
 }
 
@@ -88,6 +90,20 @@ AudioProcessorValueTreeState::ParameterLayout createLayout()
     const auto qAttributes = AudioParameterFloatAttributes()
                                  .withStringFromValueFunction ([] (float v, int) { return String (v, v < 1.0f ? 3 : 2); });
 
+    const auto msAttributes = AudioParameterFloatAttributes()
+                                  .withLabel ("ms")
+                                  .withStringFromValueFunction ([] (float v, int)
+                                  {
+                                      return v >= 1000.0f ? String (v / 1000.0f, 2) + " s"
+                                                          : String (v, v < 10.0f ? 1 : 0) + " ms";
+                                  })
+                                  .withValueFromStringFunction ([] (const String& t)
+                                  {
+                                      const auto s = t.trim().toLowerCase();
+                                      const float v = s.getFloatValue();
+                                      return (s.endsWith ("s") && ! s.endsWith ("ms")) ? v * 1000.0f : v;
+                                  });
+
     for (int b = 0; b < numBands; ++b)
     {
         const String n = "Band " + String (b + 1) + " ";
@@ -115,6 +131,26 @@ AudioProcessorValueTreeState::ParameterLayout createLayout()
                                                                  n + "Slope", slopes, defaultSlopeIndex));
         group->addChild (std::make_unique<AudioParameterChoice> (ParameterID { bandID (b, BandField::mode), version },
                                                                  n + "Channels", modeNames, 0));
+
+        // Dynamic EQ (Phase 6).
+        group->addChild (std::make_unique<AudioParameterBool> (ParameterID { bandID (b, BandField::dyn), version },
+                                                               n + "Dynamic", false));
+        group->addChild (std::make_unique<AudioParameterFloat> (ParameterID { bandID (b, BandField::thr), version },
+                                                                n + "Threshold",
+                                                                NormalisableRange<float> ((float) dynamics::minThresholdDb, (float) dynamics::maxThresholdDb, 0.1f),
+                                                                -24.0f, dbAttributes));
+        group->addChild (std::make_unique<AudioParameterFloat> (ParameterID { bandID (b, BandField::range), version },
+                                                                n + "Range",
+                                                                NormalisableRange<float> ((float) dynamics::minRangeDb, (float) dynamics::maxRangeDb, 0.1f),
+                                                                -6.0f, dbAttributes));
+        group->addChild (std::make_unique<AudioParameterFloat> (ParameterID { bandID (b, BandField::att), version },
+                                                                n + "Attack",
+                                                                logRange ((float) dynamics::minAttackMs, (float) dynamics::maxAttackMs),
+                                                                10.0f, msAttributes));
+        group->addChild (std::make_unique<AudioParameterFloat> (ParameterID { bandID (b, BandField::rel), version },
+                                                                n + "Release",
+                                                                logRange ((float) dynamics::minReleaseMs, (float) dynamics::maxReleaseMs),
+                                                                150.0f, msAttributes));
         layout.add (std::move (group));
     }
 

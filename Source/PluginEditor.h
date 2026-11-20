@@ -4,6 +4,7 @@
 #include "GUI/BandPanel.h"
 #include "GUI/BandParams.h"
 #include "GUI/EQGraph.h"
+#include "GUI/OutputMeter.h"
 #include "GUI/ParaLookAndFeel.h"
 
 /** ParaEQ's window: a top bar (undo/redo, display range, input/output gain,
@@ -22,6 +23,7 @@ public:
 
     peq::gui::EQGraph& getGraph() noexcept { return graph; }
     peq::gui::BandPanel& getBandPanel() noexcept { return bandPanel; }
+    peq::gui::OutputMeter& getOutputMeter() noexcept { return outputMeter; }
 
 private:
     void timerCallback() override;
@@ -46,6 +48,8 @@ private:
     juce::ComboBox rangeBox;
     juce::Slider inGainKnob, outGainKnob;
     juce::Label inGainLabel, outGainLabel, rangeLabel;
+    peq::gui::OutputMeter outputMeter;
+    juce::TooltipWindow tooltips { this, 600 };
     std::unique_ptr<SliderAttachment> inGainAtt, outGainAtt;
     std::unique_ptr<ButtonAttachment> bypassAtt;
 

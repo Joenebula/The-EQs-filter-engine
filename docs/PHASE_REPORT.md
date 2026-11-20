@@ -1,3 +1,83 @@
+# Phase report: Phase 6 (2026-11-20)
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP, engine, graph, analyser and dynamics tests, GCC 13 (Linux) | **44 tests, 191,781 checks, 0 failures** |
+| Same tests under AddressSanitizer + UBSan and ThreadSanitizer | **Clean** |
+| Headless GUI test (real processor + editor, Linux, Xvfb) | **All 26 checks pass** |
+| Visual Studio 2022 build, tests, pluginval (GitHub Actions) | See the pull request's checks |
+| Cubase | **Phase 6 not yet tried in Cubase.** |
+
+## Phase 6: dynamic EQ and advanced processing (done)
+
+![Phase 6](screenshot-phase6.png)
+
+### Dynamic EQ (per band)
+
+- New parameters per band, all automatable and saved: Dynamic (on/off),
+  Threshold (-60 to 0 dBFS), Range (-30 to +30 dB), Attack (0.1 to 200 ms),
+  Release (5 ms to 2 s). Existing parameter IDs are unchanged; old projects
+  load with dynamics off.
+- Works on bells and shelves (the types with a gain). Low/high-pass, notch
+  and band-pass have no gain, so the Dynamic switch is greyed out for them.
+- Detector ("sidechain"): the band's own input signal through a band-pass at
+  the band's frequency and Q (bell), a low-pass (low shelf) or a high-pass
+  (high shelf). Left/right/mid/side bands listen only to their own channel;
+  stereo bands use the louder of the two (linked).
+- Level: a short RMS average (about two cycles of the band frequency,
+  0.5 to 20 ms) then attack/release smoothing. A sine reads its peak level,
+  so the threshold is in plain dBFS.
+- Gain law: 1 dB of gain change per 2 dB over the threshold, with a 6 dB soft
+  knee, up to the Range. Range below 0 turns the band down when loud (like a
+  compressor for that region); above 0 turns it up.
+- The gain change is applied every 16 samples with the filter coefficients
+  ramped sample by sample in between, the same click-free method as normal
+  knob moves.
+
+### Activity display
+
+- Graph: a dynamic band draws a bar from its dot to where the range ends, a
+  dotted curve for the full range, and live, the curve it is applying now
+  (with the area between shaded). The white combined curve includes the live
+  gain, so it shows what you actually hear.
+- Band panel: a Dynamic button, four knobs, and a live bar with the current
+  gain change in dB.
+
+### Output metering
+
+- Stereo peak meter next to Bypass (-60 to +6 dBFS, peak hold, clip light
+  that stays on until clicked). Fed from the audio thread through atomics.
+
+### New tests (Tests/DynamicsTests.cpp)
+
+Gain law (threshold, knee, slope, range, both signs, continuity); a loud tone
+in the band is cut by the range and a quiet one left alone, also with a
+static boost; positive range boosts; the detector ignores a loud tone outside
+the band, and shelves hear only their side; attack reaches the range within
+50 ms and release recovers on time (slower release holds longer); no clicks
+with the fastest attack and release on a tone that jumps 34 dB every 50 ms;
+switching off returns exactly to the static gain and non-gain types ignore
+dynamics; in the engine a Side band ignores a mono signal while a Mid band
+reacts. The GUI test adds: output meter shows the level, a dynamic band pulls
+down within its range on real processor audio, and switching off clears it.
+
+### Honest notes
+
+- The ratio (2:1-like slope) and knee are fixed, not user controls. The spec
+  asks for threshold, range, attack and release, which are all there.
+- No look-ahead: the gain follows the detector with a delay of up to 16
+  samples plus the attack time, so the very first transient of a hit can pass
+  before the band reacts. This keeps the plugin at zero latency.
+- No external sidechain input: each band listens to its own signal.
+- Oversampling was not added. Biquad EQ with the bilinear transform does not
+  create aliasing; its only side effect is the known bell "cramping" near
+  Nyquist, which oversampling would fix at a CPU and latency cost. Left for
+  Phase 9 if it turns out to matter in use.
+
+---
+
 # Phase report: Phase 5 (2026-11-20)
 
 ## What was verified, and where

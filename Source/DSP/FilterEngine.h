@@ -46,6 +46,19 @@ public:
     /** Sets a band's target settings; out-of-range indices are ignored. */
     void setBand (int index, const BandParameters& params, ChannelMode mode) noexcept;
 
+    /** Dynamic EQ settings for a band (audio thread, like setBand()). */
+    void setBandDynamics (int index, const DynamicSettings& settings) noexcept
+    {
+        if (index >= 0 && index < numBands)
+            bands[(size_t) index].setDynamics (settings);
+    }
+
+    /** Gain change the band's dynamics are applying now (dB), for display. */
+    double dynamicOffsetDb (int index) const noexcept
+    {
+        return (index >= 0 && index < numBands) ? bands[(size_t) index].currentDynamicOffsetDb() : 0.0;
+    }
+
     /** Jumps every band straight to its target (after loading state while
         audio is stopped). */
     void snapToTargets() noexcept;

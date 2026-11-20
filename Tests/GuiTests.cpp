@@ -174,6 +174,58 @@ int main (int argc, char** argv)
         check (gotSpectrum, "analyser produces spectra from the processor's audio");
         save (*editor, outDir.getChildFile ("05-analyser.png"));
 
+        // Output meter shows the level.
+        editor->getOutputMeter().update (0.03f);
+        check (editor->getOutputMeter().levelDb (0) > -40.0f && editor->getOutputMeter().levelDb (1) > -40.0f,
+               "output meter shows the output level");
+
+        // Dynamic EQ on the 1 kHz band: the tone is loud, so the band must
+        // pull down by most of its range, and the graph and panel show it.
+        int dynBand = -1;
+        for (int b = 0; b < peq::FilterEngine::numBands; ++b)
+            if (value (*proc, b, BandField::used) >= 0.5f && near (value (*proc, b, BandField::freq), 1000.0, 50.0)
+                && juce::roundToInt (value (*proc, b, BandField::type)) == 0)
+                dynBand = b;
+        check (dynBand >= 0, "found the 1 kHz bell for the dynamic test");
+        if (dynBand >= 0)
+        {
+            auto setParam = [&] (BandField f, float v)
+            {
+                auto* prm = proc->getState().getParameter (peq::params::bandID (dynBand, f));
+                prm->setValueNotifyingHost (prm->convertTo0to1 (v));
+            };
+            setParam (BandField::dyn, 1.0f);
+            setParam (BandField::thr, -30.0f);
+            setParam (BandField::range, -10.0f);
+            setParam (BandField::att, 5.0f);
+            setParam (BandField::rel, 120.0f);
+
+            for (int block = 0; block < 60; ++block)
+            {
+                for (int i = 0; i < 512; ++i)
+                {
+                    lp = 0.97 * lp + 0.03 * (r2.nextFloat() - 0.5);
+                    phase += 2.0 * juce::MathConstants<double>::pi * 1000.0 / 48000.0;
+                    const float s = (float) (3.0 * lp + 0.25 * std::sin (phase));
+                    buffer.setSample (0, i, s);
+                    buffer.setSample (1, i, s);
+                }
+                proc->processBlock (buffer, midi);
+                graph.updateAnalyser (512.0 / 48000.0);
+            }
+            const float dynGain = proc->getDynamicGainDb (dynBand);
+            std::printf ("       dynamic gain on band %d: %.2f dB\n", dynBand + 1, (double) dynGain);
+            check (dynGain < -6.0f && dynGain >= -10.01f, "dynamic band pulls down within its range on a loud tone");
+            graph.setSelectedBand (dynBand);
+            graph.pollParameters();
+            editor->getBandPanel().refreshActivity();
+            save (*editor, outDir.getChildFile ("06-dynamic.png"));
+
+            setParam (BandField::dyn, 0.0f);
+            proc->processBlock (buffer, midi);
+            check (near (proc->getDynamicGainDb (dynBand), 0.0, 1e-6), "switching dynamics off clears the gain change");
+        }
+
         settings.show = peq::gui::AnalyserSettings::Show::off;
         graph.setAnalyserSettings (settings);
     }

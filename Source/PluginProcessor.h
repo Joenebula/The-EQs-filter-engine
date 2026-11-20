@@ -70,6 +70,19 @@ public:
     peq::SampleFifo& getPostFifo() noexcept { return postFifo; }
     void setAnalyserWanted (bool wanted) noexcept { analyserWanted.store (wanted); }
 
+    /** Gain change (dB) each band's dynamic EQ is applying now, and the
+        output peak level per channel (linear, held until read). For the
+        editor's activity display and meters; written by the audio thread. */
+    float getDynamicGainDb (int band) const noexcept
+    {
+        return (band >= 0 && band < peq::FilterEngine::numBands) ? dynamicGainDb[(size_t) band].load (std::memory_order_relaxed) : 0.0f;
+    }
+    /** Returns the peak since the last call and resets it (message thread). */
+    float takeOutputPeak (int channel) noexcept
+    {
+        return (channel >= 0 && channel < 2) ? outputPeak[(size_t) channel].exchange (0.0f) : 0.0f;
+    }
+
     /** Current sample rate, or 48 kHz before the host has prepared us (used by
         the editor to draw response curves). */
     double getCurrentSampleRateOrDefault() const noexcept
@@ -95,6 +108,11 @@ private:
         std::atomic<float>* q = nullptr;
         std::atomic<float>* slope = nullptr;
         std::atomic<float>* mode = nullptr;
+        std::atomic<float>* dyn = nullptr;
+        std::atomic<float>* thr = nullptr;
+        std::atomic<float>* range = nullptr;
+        std::atomic<float>* att = nullptr;
+        std::atomic<float>* rel = nullptr;
     };
 
     void updateSolo() noexcept;
@@ -114,6 +132,10 @@ private:
     peq::SampleFifo preFifo, postFifo;
     std::vector<float> analyserScratch;
     std::atomic<bool> analyserWanted { false };
+
+    std::array<std::atomic<float>, peq::FilterEngine::numBands> dynamicGainDb {};
+    std::array<std::atomic<float>, 2> outputPeak {};
+    void publishMeters (const juce::AudioBuffer<double>& buffer, int numChannels) noexcept;
 
     std::atomic<int> soloBand { -1 };
     peq::EQBand soloFilter;

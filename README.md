@@ -4,12 +4,13 @@ An original parametric EQ plugin (VST3, Windows, for use in Cubase), built with
 JUCE and C++17. Personal-use project. No third-party EQ code, names or artwork
 is used; all DSP is written from published filter maths.
 
-**Status: Phase 5 of 10.** 24 working EQ bands (each with its own type, slope
-and stereo / left / right / mid / side routing), an interactive EQ graph and a
-real-time spectrum analyser behind the curves.
+**Status: Phase 6 of 10.** 24 working EQ bands (each with its own type, slope
+and stereo / left / right / mid / side routing), dynamic EQ on any bell or
+shelf, an interactive EQ graph, a real-time spectrum analyser and an output
+meter.
 See [docs/PHASE_REPORT.md](docs/PHASE_REPORT.md).
 
-![ParaEQ](docs/screenshot-phase5.png)
+![ParaEQ](docs/screenshot-phase6.png)
 
 ## Using it
 
@@ -23,6 +24,15 @@ See [docs/PHASE_REPORT.md](docs/PHASE_REPORT.md).
   resolution, speed, peak hold, smoothing, opacity and tilt. The filled
   spectrum is the output (post-EQ), the grey line is the input (pre-EQ).
   Settings are saved with your project.
+- **Dynamic** (band panel) makes a bell or shelf react to the level of its own
+  frequency region: when that region goes above **Threshold**, the band's gain
+  moves by up to **Range** (negative = turn down when loud, e.g. taming harsh
+  "s" sounds; positive = turn up when loud). **Attack** / **Release** set how
+  fast it reacts and lets go. On the graph a dynamic band shows a bar from its
+  dot to where its range ends, a dotted curve for the full range, and the
+  live curve it is applying right now.
+- The small meter next to Bypass is the output peak level; it lights red above
+  0 dBFS (click it to reset).
 - The panel at the bottom shows every setting of the selected band.
 - **Undo / Redo** buttons, or Ctrl+Z / Ctrl+Y. **Delete** key removes the selected band.
 - **Solo** plays only the frequency region of that band, so you can find what to cut.
