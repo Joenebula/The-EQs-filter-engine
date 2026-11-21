@@ -25,7 +25,7 @@
 |---|---|
 | DSP tests, GCC 13 (Linux) | **72 tests, 0 failures** (4 new). Fit to a known 3-band curve: worst error 0.12 dB from 30 Hz to 18 kHz. Noise against an EQ'd copy (+6 dB louder): the fitted bands follow the real EQ within 0.50 dB from 40 Hz to 15 kHz. 50 % amount gives half the correction (3.36 vs 6.71 dB). Silence ignored; the same sound at another level gives nothing above 0.5 dB. |
 | Plugin tests (Linux; Windows CI) | **129 checks, 0 failures** (6 new). Through the real plugin with the side-chain on: 11.9 s learned of each, the added bands give 5.85 dB between 50 Hz and 2 kHz where the reference has 5.92 dB; a band already in use is left alone; one undo removes all added bands; no memory allocation on the audio thread while learning. |
-| ThreadSanitizer (plugin tests, Linux) | See the pull request |
+| ThreadSanitizer (plugin tests, Linux) | **0 warnings**, including EQ Match learning (the 2 CPU timing checks fail under TSan's slowdown, as expected) |
 | GUI tests (Linux, Xvfb) | **All pass** (7 new: panel opens, explains the side-chain, shows progress, draws the correction, Apply adds bands and stops, closing stops listening) |
 | Windows build, pluginval strictness 5, installer test | See the pull request's checks |
 | Cubase | **Not tried by a person.** |
