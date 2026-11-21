@@ -124,13 +124,19 @@ public:
     bool getDeltaListen() const noexcept { return deltaListen.load(); }
     int getSoloBand() const noexcept { return soloBand.load(); }
 
-    /** Spectrum analyser feeds: mono (L+R)/2 audio before the EQ (after input
-        gain) and after the output gain. Filled only while the editor asks. */
+    /** Spectrum analyser feeds: mono audio before the EQ (after input gain)
+        and after the output gain: (L+R)/2 by default, or L, R or (L-R)/2
+        (see setAnalyserChannel). Filled only while the editor asks. */
     peq::SampleFifo& getPreFifo() noexcept  { return preFifo; }
     peq::SampleFifo& getPostFifo() noexcept { return postFifo; }
     /** The side-chain input, mono, while the analyser is wanted (1.8). */
     peq::SampleFifo& getSidechainFifo() noexcept { return sidechainFifo; }
     void setAnalyserWanted (bool wanted) noexcept { analyserWanted.store (wanted); }
+    /** Which part of the stereo signal the pre/post feeds carry (2.1).
+        Mono input feeds its one channel for all but Side (silence). */
+    enum class AnalyserChannel { stereo = 0, left, right, side };
+    void setAnalyserChannel (AnalyserChannel c) noexcept { analyserChannel.store ((int) c); }
+    AnalyserChannel getAnalyserChannel() const noexcept { return (AnalyserChannel) analyserChannel.load(); }
 
     /** Gain change (dB) each band's dynamic EQ is applying now, and the
         output peak level per channel (linear, held until read). For the
@@ -213,6 +219,7 @@ private:
     peq::SampleFifo preFifo, postFifo, sidechainFifo;
     std::vector<float> analyserScratch;
     std::atomic<bool> analyserWanted { false };
+    std::atomic<int> analyserChannel { 0 };
 
     std::array<std::atomic<float>, peq::FilterEngine::numBands> dynamicGainDb {};
     std::array<std::atomic<float>, 2> outputPeak {};

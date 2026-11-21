@@ -302,9 +302,23 @@ void EQGraph::toggleSolo (int band)
 //==============================================================================
 void EQGraph::setAnalyserSettings (const AnalyserSettings& newSettings)
 {
+    const bool channelChanged = newSettings.channel != analyser.channel;
     analyser = newSettings;
     processor.setAnalyserWanted (analyser.enabled());
+    processor.setAnalyserChannel ((ParaEQAudioProcessor::AnalyserChannel) juce::jlimit (0, 3, analyser.channel));
     configureAnalysers();
+    if (channelChanged)
+    {
+        // Start the display afresh rather than glide from the old channel.
+        preAnalyser.reset();
+        postAnalyser.reset();
+        longTermPower.clear();
+        clashTrackPower.clear();
+        clashOtherPower.clear();
+        resonances.clear();
+        resonanceLevels.clear();
+        clashes.clear();
+    }
     for (auto* a : { &preAnalyser, &postAnalyser, &sidechainAnalyser })
     {
         a->setReleaseSeconds (analyser.releaseSeconds);
@@ -968,6 +982,14 @@ void EQGraph::drawSpectrum (juce::Graphics& g, juce::Rectangle<float> plot) cons
                             juce::Rectangle<float> (pt.x - 140.0f, pt.y - 26.0f, 280.0f, 16.0f), juce::Justification::centred);
             }
         }
+    }
+
+    if (analyser.channel > 0 && analyser.channel <= 3)
+    {
+        static const char* const names[] = { "", "ANALYSER: LEFT", "ANALYSER: RIGHT", "ANALYSER: SIDE" };
+        g.setColour (theme::text.withAlpha (0.7f));
+        g.setFont (theme::font (11.0f, true));
+        g.drawText (names[analyser.channel], plot.reduced (12.0f, 6.0f), juce::Justification::topLeft);
     }
 
     // dBFS scale for the analyser, small, on the left edge.

@@ -697,6 +697,36 @@ int main()
         check (std::abs (buf.getSample (2, 0)) <= 0.0f, "side-chain channels are still cleared on the way out");
     }
 
+    // Analyser channel (2.1): stereo sum, left, right or side.
+    {
+        auto p = makeProcessor (48000.0, 512);
+        p->setAnalyserWanted (true);
+        juce::AudioBuffer<float> buf (2, 512);
+        juce::MidiBuffer midi;
+        std::vector<float> got (512);
+        auto run = [&] (ParaEQAudioProcessor::AnalyserChannel c, float l, float r) -> float
+        {
+            p->setAnalyserChannel (c);
+            p->getPreFifo().pop (got.data(), got.size());   // drop anything older
+            p->getPostFifo().pop (got.data(), got.size());
+            for (int i = 0; i < 512; ++i) { buf.setSample (0, i, l); buf.setSample (1, i, r); }
+            p->processBlock (buf, midi);
+            const size_t n = p->getPreFifo().pop (got.data(), got.size());
+            return n == 512 ? got[200] : 99.0f;
+        };
+        using AC = ParaEQAudioProcessor::AnalyserChannel;
+        check (p->getAnalyserChannel() == AC::stereo, "analyser channel: stereo by default");
+        check (near (run (AC::stereo, 0.5f, 0.1f), 0.3, 1e-6), "analyser channel: stereo gives (L+R)/2");
+        check (near (run (AC::left, 0.5f, 0.1f), 0.5, 1e-6), "analyser channel: left gives L");
+        check (near (run (AC::right, 0.5f, 0.1f), 0.1, 1e-6), "analyser channel: right gives R");
+        check (near (run (AC::side, 0.5f, 0.1f), 0.2, 1e-6), "analyser channel: side gives (L-R)/2");
+        check (near (run (AC::stereo, 0.4f, -0.4f), 0.0, 1e-6) && near (run (AC::side, 0.4f, -0.4f), 0.4, 1e-6),
+               "analyser channel: a pure side signal shows only in Side");
+        std::vector<float> post (512);
+        check (p->getPostFifo().pop (post.data(), post.size()) == 512 && near (post[200], 0.4, 1e-4),
+               "analyser channel: the post-EQ feed follows the same choice");
+    }
+
     // EQ Match (1.6): learn this track against the sidechain, add bands.
     {
         auto p = makeProcessor (48000.0, 512);

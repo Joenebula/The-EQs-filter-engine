@@ -5,7 +5,7 @@ Cubase. It has a large interactive EQ graph, a real-time spectrum analyser,
 dynamic EQ on any bell or shelf (with an external sidechain), left/right/mid/side processing per band,
 presets, A/B compare and full automation.
 
-Version 2.0 · Vendor "Home Studio" · Personal use.
+Version 2.1 · Vendor "Home Studio" · Personal use.
 
 ---
 
@@ -297,6 +297,7 @@ Settings (**Analyser** button):
 | Setting | Choices |
 |---|---|
 | Show | Off, Post-EQ, Pre + Post, Pre-EQ |
+| Channel | Stereo (L+R), Left, Right or Side (L-R): which part of the signal the analyser shows (see below) |
 | Resolution | 2048 to 16384 points. Higher = more detail in the lows, slower |
 | Speed | How fast the display falls back |
 | Smoothing | Off, 1/12, 1/6 or 1/3 octave |
@@ -309,6 +310,23 @@ Settings (**Analyser** button):
 | EQ Match | Opens the EQ Match panel (see below) |
 
 The analyser only runs while the window is open.
+
+### Looking at Left, Right or Side
+
+Normally the analyser shows the stereo signal folded to mono (left plus
+right). **Channel** lets you look at just the **Left** or **Right** channel,
+or at the **Side** signal (left minus right): what makes the track wide.
+Side is the useful one with ParaEQ's per-band Side mode. Switch the analyser
+to Side, find the build-up (low-end rumble that should be in the centre,
+harsh cymbal width), then cut it with a band set to **Side** so the centre
+stays untouched. When anything other than Stereo is chosen, the graph says
+so in its top left corner (for example ANALYSER: SIDE), so you don't forget.
+The display starts afresh when you switch. A mono track has no Side, so
+Side shows nothing on it. The resonance finder and the clash view use
+whichever channel is chosen, but the side-chain line is always the other
+track's stereo sum. Saved with the analyser settings.
+
+![The analyser set to Side: only the side-only tone at 5 kHz shows, the centred noise is gone](screenshot-side.png)
 
 ### Finding resonances
 

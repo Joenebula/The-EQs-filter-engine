@@ -1,3 +1,27 @@
+# Version 2.1: analyser channel (2026-11-21)
+
+## What changed
+
+- **Analyser > Channel**: Stereo (L+R)/2 (as before, the default), Left,
+  Right or Side (L-R)/2. The processor's pre/post analyser feeds follow the
+  choice through a relaxed atomic read once per block (mono input: its one
+  channel, or silence for Side). The side-chain feed stays a stereo sum.
+- Switching resets the pre/post analysers and the resonance and clash
+  averages, so the display starts afresh. A label (for example
+  "ANALYSER: SIDE") shows in the graph's top left while not on Stereo.
+  Saved with the analyser settings ("analyserChannel").
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **81 tests, 0 failures** (unchanged) |
+| Plugin tests (Linux; Windows CI) | **147 checks, 0 failures** (7 new: stereo by default; stereo, left, right and side give (L+R)/2, L, R and (L-R)/2; a pure side signal shows only in Side; the post feed follows the same choice) |
+| ThreadSanitizer (plugin tests) | **0 warnings.** The two CPU-time checks fail under TSan's slowdown, as always |
+| GUI tests (Linux, Xvfb) | **All pass** (4 new: choosing Side reaches the processor; with centred noise and a side-only 5 kHz tone, Side shows the tone 30+ dB above the noise; Stereo shows the noise again; back to Stereo) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** |
+
 # Version 2.0: clash view (2026-11-21)
 
 ## What changed

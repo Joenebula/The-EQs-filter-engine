@@ -644,6 +644,57 @@ int main (int argc, char** argv)
         check (graph.getClashes().empty(), "clash bars go when the view is switched off");
     }
 
+    // 2.1: analyser channel (stereo, left, right, side).
+    {
+        auto a = graph.getAnalyserSettings();
+        a.show = peq::gui::AnalyserSettings::Show::post;
+        a.channel = 3;
+        graph.setAnalyserSettings (a);
+        check (proc->getAnalyserChannel() == ParaEQAudioProcessor::AnalyserChannel::side, "choosing Side tells the processor");
+        juce::AudioBuffer<float> buf (4, 512);
+        juce::MidiBuffer chMidi;
+        juce::Random chRng (29);
+        long t = 0;
+        auto feed = [&] (int blocks)
+        {
+            for (int block = 0; block < blocks; ++block)
+            {
+                for (int i = 0; i < 512; ++i, ++t)
+                {
+                    const float mid = (chRng.nextFloat() - 0.5f) * 0.3f;   // the same in both channels
+                    const float side = 0.05f * (float) std::sin (2.0 * 3.14159265358979 * 5000.0 * (double) t / 48000.0);
+                    buf.setSample (0, i, mid + side);
+                    buf.setSample (1, i, mid - side);
+                    buf.setSample (2, i, 0.0f);
+                    buf.setSample (3, i, 0.0f);
+                }
+                proc->processBlock (buf, chMidi);
+                graph.updateAnalyser (512.0 / 48000.0);
+            }
+        };
+        auto levelAt = [&] (double hz)
+        {
+            const auto& pa = graph.getPostAnalyser();
+            return peq::SpectrumAnalyser::levelAt (pa.levelsDb(), hz, pa.sampleRate() / (double) pa.fftSize(), 1.0 / 6.0);
+        };
+        feed (120);
+        const double sideTone = levelAt (5000.0), sideNoise = levelAt (300.0);
+        std::printf ("       side: 5 kHz %.1f dBFS, 300 Hz %.1f dBFS\n", sideTone, sideNoise);
+        check (sideTone > sideNoise + 30.0, "Side shows the side-only tone and not the centred noise");
+        graph.pollParameters();   // pick up the undo in the clash checks
+        graph.setSelectedBand (0);
+        editor->timerCallbackForTests();
+        graph.repaint();
+        save (*editor, outDir.getChildFile ("16-side.png"));
+        a.channel = 0;
+        graph.setAnalyserSettings (a);
+        feed (120);
+        const double stTone = levelAt (5000.0), stNoise = levelAt (300.0);
+        std::printf ("       stereo: 5 kHz %.1f dBFS, 300 Hz %.1f dBFS\n", stTone, stNoise);
+        check (stNoise > sideNoise + 30.0 && stTone < sideTone, "Stereo shows the centred noise again");
+        check (proc->getAnalyserChannel() == ParaEQAudioProcessor::AnalyserChannel::stereo, "back to Stereo");
+    }
+
     base.reset();
     std::printf ("\n%s (%d failures)\n", failures == 0 ? "ALL GUI CHECKS PASSED" : "GUI CHECKS FAILED", failures);
     return failures == 0 ? 0 : 1;
