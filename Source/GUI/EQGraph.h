@@ -149,6 +149,13 @@ public:
     void beginDragForTests (int band) { beginDrag (band, nodePosition (band)); }
     void endDragForTests() { endDrag(); }
 
+    /** Analyser snapshot (2.3): freezes the spectrum shown now (output, or
+        input if only Pre-EQ is shown) as a dotted line to compare against
+        later. Not saved; cleared if the resolution or sample rate changes. */
+    bool takeSnapshot();
+    void clearSnapshot();
+    bool hasSnapshot() const noexcept { return ! snapshotDb.empty(); }
+
     /** The output analyser, as drawn (tests). */
     const SpectrumAnalyser& getPostAnalyser() const noexcept { return postAnalyser; }
 
@@ -177,6 +184,7 @@ private:
     void updateResonances (const SpectrumAnalyser& source, double elapsedSeconds);
     std::vector<double> clashTrackPower, clashOtherPower;   // per bin, ~3 s averages (clash view)
     std::vector<Clash> clashes;
+    std::vector<double> snapshotDb;
     double clashClock = 0.0;
     void updateClashes (const SpectrumAnalyser& track, double elapsedSeconds);
     bool bandCutsNear (double hz) const;   // an active cut within 1/3 octave
