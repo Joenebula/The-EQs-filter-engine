@@ -188,14 +188,15 @@ int main()
     {
         auto p = makeProcessor();
         const auto& params = p->getParameters();
-        const int expected = 7 + peq::params::numBands * 15;
-        check (params.size() == expected, "parameter count = 7 global + 24 bands x 15");
+        const int expected = 8 + peq::params::numBands * 15;
+        check (params.size() == expected, "parameter count = 8 global + 24 bands x 15");
 
         bool allAutomatable = true, idsOk = true, uniqueIds = true;
         juce::StringArray ids;
         for (auto* prm : params)
         {
-            if (auto* w = dynamic_cast<juce::AudioProcessorParameterWithID*> (prm); w == nullptr || w->paramID != peq::params::lookahead)
+            if (auto* w = dynamic_cast<juce::AudioProcessorParameterWithID*> (prm);
+                w == nullptr || (w->paramID != peq::params::lookahead && w->paramID != peq::params::linearPhase))
                 allAutomatable = allAutomatable && prm->isAutomatable();
             if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (prm))
             {
@@ -208,7 +209,7 @@ int main()
                 idsOk = false;
             }
         }
-        check (allAutomatable, "every parameter except look-ahead is automatable");
+        check (allAutomatable, "every parameter except look-ahead and linear phase is automatable");
         check (idsOk && uniqueIds, "every parameter has a unique ID");
 
         // IDs saved in projects must never change.
@@ -255,7 +256,7 @@ int main()
             if (! near (getValue (pa), getValue (pb), 1e-3 * std::max (1.0, std::abs ((double) getValue (pa)))))
                 ++mismatches;
         }
-        check (mismatches == 0, "save then load restores all 367 parameters");
+        check (mismatches == 0, "save then load restores all 368 parameters");
         check (juce::exactlyEqual ((double) b->getState().state.getProperty ("displayRange"), 12.0), "editor settings saved with the state");
 
         auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
@@ -612,6 +613,223 @@ int main()
         const double without = onsetDb (false), with = onsetDb (true);
         std::printf ("       first 2 ms of a -6 dBFS burst: %.2f dB without look-ahead, %.2f dB with\n", without, with);
         check (with < without - 4.0, "look-ahead: dynamic band catches the start of a burst (4+ dB lower)");
+    }
+
+    // EQ Match (1.6): learn this track against the sidechain, add bands.
+    {
+        auto p = makeProcessor (48000.0, 512);
+        juce::AudioProcessor::BusesLayout l;
+        l.inputBuses.add (juce::AudioChannelSet::stereo());
+        l.inputBuses.add (juce::AudioChannelSet::stereo());
+        l.outputBuses.add (juce::AudioChannelSet::stereo());
+        p->setBusesLayout (l);
+        p->prepareToPlay (48000.0, 512);
+        check (p->isSidechainActive() && ! p->isMatchLearning() && p->applyMatch (8, 1.0) == 0,
+               "EQ Match: not learning at first; nothing learned, nothing applied");
+
+        // A band already in use must be left alone.
+        setValue (bandParam (*p, 0, BandField::used), 1.0f);
+        setValue (bandParam (*p, 0, BandField::freq), 5000.0f);
+        setValue (bandParam (*p, 0, BandField::gain), 0.0f);
+
+        peq::BandParameters truth;
+        truth.type = peq::FilterType::LowShelf;
+        truth.frequencyHz = 150.0;
+        truth.gainDb = 6.0;
+        truth.analogMatched = true;
+        peq::EQBand shelf;
+        shelf.prepare (48000.0);
+        shelf.setTarget (truth);
+        shelf.snapToTarget();
+
+        p->startMatchLearning();
+        juce::AudioBuffer<float> buf (4, 512);
+        juce::MidiBuffer midi;
+        juce::Random rng (5);
+        std::vector<double> ref (512);
+        const int blocks = 48000 * 12 / 512;
+        for (int block = 0; block < blocks; ++block)
+        {
+            for (int i = 0; i < 512; ++i)
+            {
+                const float x = (rng.nextFloat() - 0.5f) * 0.5f;
+                buf.setSample (0, i, x);
+                buf.setSample (1, i, x);
+                ref[(size_t) i] = (rng.nextDouble() - 0.5) * 0.5;
+            }
+            double* ch[1] { ref.data() };
+            shelf.process (ch, 1, 512);
+            for (int i = 0; i < 512; ++i)
+            {
+                buf.setSample (2, i, (float) ref[(size_t) i]);
+                buf.setSample (3, i, (float) ref[(size_t) i]);
+            }
+            p->processBlock (buf, midi);
+            if (block % 50 == 0)
+                p->pumpMatch();
+        }
+        p->pumpMatch();
+        std::printf ("       EQ Match learned %.1f s of the track and %.1f s of the reference\n",
+                     p->getMatch().sourceSeconds(), p->getMatch().referenceSeconds());
+        check (p->isMatchLearning() && p->getMatch().sourceSeconds() > 11.0 && p->getMatch().referenceSeconds() > 11.0,
+               "EQ Match: learns both the track and the sidechain while playing");
+
+        p->stopMatchLearning();
+        p->getUndoManager().beginNewTransaction();
+        const int added = p->applyMatch (8, 1.0);
+        auto curveDb = [&] (double f)
+        {
+            double db = 0.0;
+            for (int b = 1; b < peq::FilterEngine::numBands; ++b)
+            {
+                if (getValue (bandParam (*p, b, BandField::used)) < 0.5f)
+                    continue;
+                peq::BandParameters bp;
+                bp.type = (peq::FilterType) juce::roundToInt (getValue (bandParam (*p, b, BandField::type)));
+                bp.frequencyHz = getValue (bandParam (*p, b, BandField::freq));
+                bp.gainDb = getValue (bandParam (*p, b, BandField::gain));
+                bp.q = getValue (bandParam (*p, b, BandField::q));
+                bp.analogMatched = true;
+                peq::CascadeCoefficients c;
+                peq::FilterDesign::design (bp, 48000.0, c);
+                db += c.magnitudeDb (f, 48000.0);
+            }
+            return db;
+        };
+        peq::CascadeCoefficients tc;
+        peq::FilterDesign::design (truth, 48000.0, tc);
+        const double want = tc.magnitudeDb (50.0, 48000.0) - tc.magnitudeDb (2000.0, 48000.0);
+        const double got = curveDb (50.0) - curveDb (2000.0);
+        std::printf ("       EQ Match added %d band(s): 50 Hz vs 2 kHz %.2f dB (reference is %.2f dB)\n", added, got, want);
+        check (added >= 1 && added <= 8 && near (got, want, 1.5), "EQ Match: the added bands follow the reference's tone");
+        check (near (getValue (bandParam (*p, 0, BandField::freq)), 5000.0, 0.5)
+                   && near (getValue (bandParam (*p, 0, BandField::gain)), 0.0, 0.01),
+               "EQ Match: bands already in use are left alone");
+
+        p->getUndoManager().undo();
+        int used = 0;
+        for (int b = 0; b < peq::FilterEngine::numBands; ++b)
+            used += getValue (bandParam (*p, b, BandField::used)) >= 0.5f ? 1 : 0;
+        check (used == 1, "EQ Match: one undo takes all the added bands away");
+    }
+
+    // Linear phase (1.5).
+    {
+        auto p = makeProcessor (48000.0, 512);
+        check (getValue (param (*p, peq::params::linearPhase)) < 0.5f && ! p->isLinearPhaseActive(),
+               "linear phase: off for a new instance");
+        check (! param (*p, peq::params::linearPhase)->isAutomatable(), "linear phase is not automatable (it changes latency)");
+
+        setupBell (*p, 6.0f);
+        const double minimumPhase = sineGainDb (*p, 48000.0, 1000.0, 512);
+        setValue (param (*p, peq::params::linearPhase), 1.0f);
+        check (p->updateLinearPhaseKernel(), "linear phase: kernel designed when switched on");
+        juce::AudioBuffer<float> buf (2, 512);
+        juce::MidiBuffer midi;
+        buf.clear();
+        p->processBlock (buf, midi);
+        p->flushLatencyUpdate();
+        const int lat = p->getLatencySamples();
+        std::printf ("       linear phase latency at 48 kHz: %d samples (%.1f ms)\n", lat, lat / 48.0);
+        check (p->isLinearPhaseActive() && lat == 4096 + peq::LinearPhaseFIR::partitionSize,
+               "linear phase: active, latency 4352 samples (91 ms) at 48 kHz");
+
+        // Same gain at 1 kHz as the normal mode (the bell is in the FIR now).
+        const double linearGain = sineGainDb (*p, 48000.0, 1000.0, 512, 1.0);
+        std::printf ("       +6 dB bell at 1 kHz: %.2f dB minimum phase, %.2f dB linear phase\n", minimumPhase, linearGain);
+        check (near (linearGain, minimumPhase, 0.1), "linear phase: same gain as minimum phase on a bell");
+
+        // Phase: a 300 Hz tone near the bell keeps its timing (exactly the latency later).
+        {
+            p->reset();
+            const int total = 48000;
+            double re = 0.0, im = 0.0;
+            juce::AudioBuffer<float> b (2, 480);
+            for (int pos = 0; pos < total; pos += 480)
+            {
+                for (int i = 0; i < 480; ++i)
+                {
+                    const float x = (float) (0.25 * std::sin (2.0 * pi * 300.0 * (pos + i) / 48000.0));
+                    b.setSample (0, i, x);
+                    b.setSample (1, i, x);
+                }
+                p->processBlock (b, midi);
+                if (pos >= total / 2)
+                    for (int i = 0; i < 480; ++i)
+                    {
+                        const double ph = 2.0 * pi * 300.0 * (pos + i - lat) / 48000.0;
+                        re += b.getSample (0, i) * std::cos (ph);
+                        im += b.getSample (0, i) * std::sin (ph);
+                    }
+            }
+            // A sine delayed by exactly the latency projects fully onto sin(), none onto cos().
+            const double phaseError = std::atan2 (re, im);
+            std::printf ("       linear phase: 300 Hz phase error after removing the latency: %.4f rad\n", phaseError);
+            check (std::abs (phaseError) < 0.01, "linear phase: no phase shift (300 Hz arrives exactly one latency later)");
+        }
+
+        // Dragging a band updates the FIR.
+        setValue (bandParam (*p, 0, BandField::gain), -6.0f);
+        p->updateLinearPhaseKernel();
+        check (near (sineGainDb (*p, 48000.0, 1000.0, 512, 1.0), -6.0, 0.15), "linear phase: band changes reach the FIR");
+
+        // A dynamic band stays minimum phase but still works.
+        setValue (bandParam (*p, 0, BandField::dyn), 1.0f);
+        setValue (bandParam (*p, 0, BandField::thr), -60.0f);
+        setValue (bandParam (*p, 0, BandField::range), -6.0f);
+        p->updateLinearPhaseKernel();
+        const double dynGain = sineGainDb (*p, 48000.0, 1000.0, 512, 1.0);
+        check (dynGain < -9.0, "linear phase: dynamic bands still work (IIR, before the FIR)");
+        setValue (bandParam (*p, 0, BandField::dyn), 0.0f);
+
+        // Bypass in linear mode keeps the delay (no jump in time).
+        setValue (param (*p, peq::params::bypass), 1.0f);
+        for (int i = 0; i < 10; ++i) { buf.clear(); p->processBlock (buf, midi); }
+        int found = -1;
+        for (int block = 0; block < 12 && found < 0; ++block)
+        {
+            buf.clear();
+            if (block == 0) { buf.setSample (0, 10, 1.0f); buf.setSample (1, 10, 1.0f); }
+            p->processBlock (buf, midi);
+            for (int i = 0; i < 512 && found < 0; ++i)
+                if (std::abs (buf.getSample (0, i)) > 0.5f)
+                    found = block * 512 + i;
+        }
+        check (found == 10 + lat, "linear phase: bypassed audio keeps the same delay");
+        setValue (param (*p, peq::params::bypass), 0.0f);
+
+        // With look-ahead too: the latencies add up.
+        setValue (param (*p, peq::params::lookahead), 1.0f);
+        buf.clear();
+        p->processBlock (buf, midi);
+        p->flushLatencyUpdate();
+        check (p->getLatencySamples() == lat + 240, "linear phase + look-ahead: latencies add up");
+        setValue (param (*p, peq::params::lookahead), 0.0f);
+
+        // Not in presets; saved with the project and active straight after loading.
+        check (! p->getPresets().capture().getChildWithProperty ("id", peq::params::linearPhase).isValid(),
+               "linear phase is not saved in presets");
+        juce::MemoryBlock saved;
+        p->getStateInformation (saved);
+        auto q = makeProcessor (48000.0, 512);
+        q->setStateInformation (saved.getData(), (int) saved.getSize());
+        q->prepareToPlay (48000.0, 512);
+        check (q->isLinearPhaseActive() && q->getLatencySamples() == lat, "linear phase: restored with the project");
+
+        // Off again: zero latency, IIR bands back.
+        setValue (param (*p, peq::params::linearPhase), 0.0f);
+        buf.clear();
+        p->processBlock (buf, midi);
+        p->flushLatencyUpdate();
+        check (! p->isLinearPhaseActive() && p->getLatencySamples() == 0
+                   && near (sineGainDb (*p, 48000.0, 1000.0, 512), -6.0, 0.15),
+               "linear phase off: zero latency, bands back to normal");
+
+        // 96 kHz: longer kernel, same time.
+        auto r = makeProcessor (96000.0, 512);
+        setValue (param (*r, peq::params::linearPhase), 1.0f);
+        r->prepareToPlay (96000.0, 512);
+        check (r->getLatencySamples() == 8192 + peq::LinearPhaseFIR::partitionSize, "linear phase at 96 kHz: 8448 samples (88 ms)");
     }
 
     // Corrupt or foreign data is ignored.
@@ -1063,6 +1281,50 @@ int main()
             p->processBlock (dbuf, midi);
         countAllocations = false;
         check (allocationCount.load() == 0, "no memory allocation in 64-bit processing either");
+
+        // Linear phase, with the kernel being redesigned between blocks (as
+        // the timer does while a band is dragged) and bands moving.
+        p->setProcessingPrecision (juce::AudioProcessor::singlePrecision);
+        setValue (param (*p, peq::params::linearPhase), 1.0f);
+        p->prepareToPlay (48000.0, 512);
+        long linearAllocs = 0;
+        for (int block = 0; block < 300; ++block)
+        {
+            if (block % 4 == 0)
+            {
+                setValue (bandParam (*p, 0, BandField::gain), rng.nextFloat() * 24.0f - 12.0f);
+                p->updateLinearPhaseKernel();   // message thread work, not counted
+            }
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < 512; ++i)
+                    buf.setSample (ch, i, rng.nextFloat() - 0.5f);
+            allocationCount = 0;
+            countAllocations = true;
+            p->processBlock (buf, midi);
+            countAllocations = false;
+            linearAllocs += allocationCount.load();
+        }
+        check (p->isLinearPhaseActive() && linearAllocs == 0, "no memory allocation in linear phase (kernel changing while playing)");
+
+        // EQ Match learning (the audio thread only fills a ring buffer).
+        setValue (param (*p, peq::params::linearPhase), 0.0f);
+        p->startMatchLearning();
+        long matchAllocs = 0;
+        for (int block = 0; block < 100; ++block)
+        {
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < 512; ++i)
+                    buf.setSample (ch, i, rng.nextFloat() - 0.5f);
+            allocationCount = 0;
+            countAllocations = true;
+            p->processBlock (buf, midi);
+            countAllocations = false;
+            matchAllocs += allocationCount.load();
+            if (block % 10 == 0)
+                p->pumpMatch();
+        }
+        check (p->isMatchLearning() && p->getMatch().sourceSeconds() > 0.5 && matchAllocs == 0,
+               "no memory allocation while EQ Match is learning");
     }
 
     // Stress: random parameters every block, random block sizes (1..4096),
@@ -1164,6 +1426,9 @@ int main()
                 pm.loadFactory (rng.nextInt (pm.getFactoryNames().size()));
             if (round % 75 == 40)
                 p->switchAB();
+            if (round == 100)
+                setValue (param (*p, peq::params::linearPhase), 1.0f);
+            p->updateLinearPhaseKernel();   // as the timer does
             std::this_thread::sleep_for (std::chrono::milliseconds (1));
         }
         running = false;
@@ -1204,8 +1469,20 @@ int main()
             q->processBlock (buf, midi);
         const double oneBand = 100.0 * std::chrono::duration<double> (std::chrono::steady_clock::now() - t1).count() / audioSeconds;
         std::printf ("       CPU: 1 bell, stereo 48 kHz: %.2f %% of one core\n", oneBand);
+
+        // Linear phase, same busy settings.
+        setValue (param (*p, peq::params::linearPhase), 1.0f);
+        p->prepareToPlay (48000.0, 256);
+        for (int block = 0; block < 200; ++block)
+            p->processBlock (buf, midi);
+        const auto t2 = std::chrono::steady_clock::now();
+        for (int block = 0; block < blocks; ++block)
+            p->processBlock (buf, midi);
+        const double linearLoad = 100.0 * std::chrono::duration<double> (std::chrono::steady_clock::now() - t2).count() / audioSeconds;
+        std::printf ("       CPU: same, linear phase: %.2f %% of one core\n", linearLoad);
        #if defined (NDEBUG)
         check (load < 10.0, "CPU: fully loaded instance under 10 % of one core (release build)");
+        check (linearLoad < 15.0, "CPU: linear phase instance under 15 % of one core (release build)");
        #else
         check (load < 100.0, "CPU: runs faster than real time (debug build; release is much faster)");
        #endif

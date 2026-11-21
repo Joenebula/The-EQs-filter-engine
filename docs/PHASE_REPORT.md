@@ -1,3 +1,66 @@
+# Version 1.6: EQ Match (2026-11-21)
+
+## What changed
+
+- **EQ Match** (Analyser menu > EQ Match): learns the long-term average
+  spectrum of this track (ParaEQ's input) and of a reference on the
+  side-chain, and adds bands (bells, plus shelves at the ends) that make this
+  track's tonal balance follow the reference's.
+- Learning: 8192-point FFT frames (16384 at 88.2/96 kHz), 50 % overlap,
+  frames below -60 dBFS ignored, so the two can be learned at different
+  times. The difference is 1/3-octave smoothed, the overall level difference
+  (average 100 Hz to 10 kHz) removed, limited to +/-12 dB, and set to 0
+  where either signal has no content.
+- Fitting: greedy placement at the largest remaining error (width from the
+  half-error points gives Q; shelves where the error runs to the ends), then
+  a least-squares touch-up of all gains after each new band.
+- Bands go only into free slots, as one undo step. Choice of 4/6/8/12 bands
+  and 25 to 100 % amount. The audio thread only copies samples into two
+  ring buffers while learning; all analysis runs on the message thread.
+- No new parameters (368 as before); nothing new is saved with the project.
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **72 tests, 0 failures** (4 new). Fit to a known 3-band curve: worst error 0.12 dB from 30 Hz to 18 kHz. Noise against an EQ'd copy (+6 dB louder): the fitted bands follow the real EQ within 0.50 dB from 40 Hz to 15 kHz. 50 % amount gives half the correction (3.36 vs 6.71 dB). Silence ignored; the same sound at another level gives nothing above 0.5 dB. |
+| Plugin tests (Linux; Windows CI) | **129 checks, 0 failures** (6 new). Through the real plugin with the side-chain on: 11.9 s learned of each, the added bands give 5.85 dB between 50 Hz and 2 kHz where the reference has 5.92 dB; a band already in use is left alone; one undo removes all added bands; no memory allocation on the audio thread while learning. |
+| ThreadSanitizer (plugin tests, Linux) | **0 warnings**, including EQ Match learning (the 2 CPU timing checks fail under TSan's slowdown, as expected) |
+| GUI tests (Linux, Xvfb) | **All pass** (7 new: panel opens, explains the side-chain, shows progress, draws the correction, Apply adds bands and stops, closing stops listening) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** |
+
+# Version 1.5: linear-phase mode (2026-11-21)
+
+## What changed
+
+- **Linear phase** (global parameter `linear_phase`, off by default, not
+  automatable, not in presets). The top bar's Analog button is now a curve
+  menu: **Analog** (default), **Classic**, **Linear**.
+- In Linear mode, static Stereo bands are combined into one symmetric FIR
+  filter (frequency sampling of the analog-matched magnitude, Blackman
+  window; 8192 taps up to 50 kHz, 16384 up to 100 kHz, 32768 above), run
+  with uniformly partitioned FFT convolution (256-sample partitions).
+  Dynamic bands and L/R/M/S bands stay IIR, before the FIR, so they still
+  react instantly. The dry path is delayed to match.
+- The kernel is redesigned on the message thread (25 Hz timer) and swapped in
+  on the audio thread with a one-partition crossfade. No allocation or
+  locking on the audio thread.
+- Latency N/2 + 256: 4352 samples (90.7 ms) at 48 kHz, 8448 at 96 kHz, added
+  to look-ahead when both are on. Reported to the host while on.
+- 368 parameters (8 global + 24 x 15).
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **68 tests, 0 failures** (5 new: kernel length, symmetric kernel matching the IIR curve within 0.001 dB from 150 Hz to 18 kHz, pure delay when flat, sine gain and phase, click-free kernel switch) |
+| Plugin tests (Linux; Windows CI) | **123 checks, 0 failures** (16 new). Linear: reports 4352 samples at 48 kHz (8448 at 96 kHz); a +6 dB bell gives 6.00 dB, same as normal mode; phase error against a pure delay 0.0000 rad; band changes reach the sound; dynamic bands still work; bypass delayed to match; latencies add with look-ahead; not in presets; restored with the project; back to 0 latency when off. No allocations on the audio thread in linear mode. CPU, busy instance: 3.92 % of one core linear vs 1.63 % normal. |
+| ThreadSanitizer (plugin tests, Linux) | **0 warnings**, including the concurrency test that switches linear on mid-run and redesigns the kernel every round (the 2 CPU timing checks fail under TSan's slowdown, as expected) |
+| GUI tests (Linux, Xvfb) | **All pass** (curve menu sets Linear, Classic and Analog correctly) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** How Cubase handles the latency change when Linear is switched during playback is untested. |
+
 # Version 1.4: Auto Gain and look-ahead (2026-11-20)
 
 ## What changed

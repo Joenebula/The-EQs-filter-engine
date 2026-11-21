@@ -490,6 +490,19 @@ void EQGraph::resized()
     recomputeCurves();
 }
 
+void EQGraph::setMatchCurve (std::vector<double> frequencies, std::vector<double> db)
+{
+    if (frequencies.size() != db.size())
+        frequencies.clear();
+    if (frequencies.empty())
+        db.clear();
+    if (frequencies == matchFreqs && db == matchDb)
+        return;
+    matchFreqs = std::move (frequencies);
+    matchDb = std::move (db);
+    repaint();
+}
+
 void EQGraph::paint (juce::Graphics& g)
 {
     g.fillAll (theme::graphBg);
@@ -498,6 +511,21 @@ void EQGraph::paint (juce::Graphics& g)
     if (analyser.enabled())
         drawSpectrum (g, plot);
     drawCurves (g, plot);
+    if (! matchFreqs.empty())
+    {
+        juce::Path line;
+        for (size_t i = 0; i < matchFreqs.size(); ++i)
+        {
+            const juce::Point<float> pt (xForFreq (matchFreqs[i]), yForDb (matchDb[i]));
+            if (i == 0) line.startNewSubPath (pt);
+            else        line.lineTo (pt);
+        }
+        juce::Path dashed;
+        const float dashes[] = { 7.0f, 4.0f };
+        juce::PathStrokeType (2.0f).createDashedStroke (dashed, line, dashes, 2);
+        g.setColour (theme::warning.withAlpha (0.9f));
+        g.fillPath (dashed);
+    }
     drawNodes (g);
 
     const int readoutBand = dragBand >= 0 ? dragBand : (hovered >= 0 ? hovered : selected);

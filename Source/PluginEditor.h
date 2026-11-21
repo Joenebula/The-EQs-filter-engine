@@ -4,6 +4,7 @@
 #include "GUI/BandPanel.h"
 #include "GUI/BandParams.h"
 #include "GUI/EQGraph.h"
+#include "GUI/MatchPanel.h"
 #include "GUI/OutputMeter.h"
 #include "GUI/ParaLookAndFeel.h"
 
@@ -24,6 +25,7 @@ public:
 
     peq::gui::EQGraph& getGraph() noexcept { return graph; }
     peq::gui::BandPanel& getBandPanel() noexcept { return bandPanel; }
+    peq::gui::MatchPanel& getMatchPanel() noexcept { return matchPanel; }
     peq::gui::OutputMeter& getOutputMeter() noexcept { return outputMeter; }
 
     /** Steps through all presets (factory, then user); +1 next, -1 previous. */
@@ -45,6 +47,12 @@ private:
     void exportPreset();
     void updatePresetBar();
     void updateAutoGainTooltip();
+    void updateCurveButton();
+    void showCurveMenu();
+public:
+    /** 0 = Classic, 1 = Analog, 2 = Linear phase (also used by tests). */
+    void setCurveMode (int mode);
+private:
 
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
@@ -55,6 +63,7 @@ private:
 
     peq::gui::EQGraph graph;
     peq::gui::BandPanel bandPanel;
+    peq::gui::MatchPanel matchPanel { processor, graph };
 
     juce::TextButton undoButton { "Undo" }, redoButton { "Redo" }, bypassButton { "Bypass" };
     juce::TextButton analogButton { "Analog" }, autoGainButton { "Auto" };
@@ -67,7 +76,7 @@ private:
     peq::gui::OutputMeter outputMeter;
     juce::TooltipWindow tooltips { this, 600 };
     std::unique_ptr<SliderAttachment> inGainAtt, outGainAtt, scaleAtt;
-    std::unique_ptr<ButtonAttachment> bypassAtt, analogAtt, autoGainAtt;
+    std::unique_ptr<ButtonAttachment> bypassAtt, autoGainAtt;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParaEQAudioProcessorEditor)
 };

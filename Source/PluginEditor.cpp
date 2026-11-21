@@ -32,6 +32,7 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
     addAndMakeVisible (graph);
     addAndMakeVisible (outputMeter);
     addAndMakeVisible (bandPanel);
+    addChildComponent (matchPanel);
 
     graph.onSelectionChanged = [this] (int band) { bandPanel.showBand (band); };
     bandPanel.onDeleteRequested = [this] (int band) { graph.deleteBand (band); };
@@ -43,11 +44,13 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
     redoButton.setTooltip ("Redo (Ctrl+Y)");
     bypassButton.setClickingTogglesState (true);
     bypassButton.setColour (juce::TextButton::buttonOnColourId, peq::theme::warning);
-    analogButton.setClickingTogglesState (true);
+    analogButton.setClickingTogglesState (false);
     analogButton.setColour (juce::TextButton::buttonOnColourId, peq::theme::accent);
-    analogButton.setTooltip ("Analog-matched curves: on, bands keep their analogue shape right up to 20 kHz "
-                             "(no squeezing near the top at 44.1/48 kHz). Off: classic digital curves, "
-                             "as in ParaEQ 1.0. Zero latency either way.");
+    analogButton.setTooltip ("Curve type. Analog: bands keep their analogue shape right up to 20 kHz, zero latency. "
+                             "Classic: plain digital curves as in ParaEQ 1.0, zero latency. "
+                             "Linear: linear phase (no phase shift between frequencies), analog-accurate shape, "
+                             "adds about 90 ms latency.");
+    analogButton.onClick = [this] { showCurveMenu(); };
     autoGainButton.setClickingTogglesState (true);
     autoGainButton.setColour (juce::TextButton::buttonOnColourId, peq::theme::accent);
     analyserButton.onClick = [this] { showAnalyserMenu(); };
@@ -100,10 +103,10 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
     inGainAtt  = std::make_unique<SliderAttachment> (state, peq::params::inputGain, inGainKnob);
     outGainAtt = std::make_unique<SliderAttachment> (state, peq::params::outputGain, outGainKnob);
     bypassAtt  = std::make_unique<ButtonAttachment> (state, peq::params::bypass, bypassButton);
-    analogAtt  = std::make_unique<ButtonAttachment> (state, peq::params::analogMatch, analogButton);
     autoGainAtt = std::make_unique<ButtonAttachment> (state, peq::params::autoGain, autoGainButton);
     autoGainButton.onStateChange = [this] { updateAutoGainTooltip(); };
     updateAutoGainTooltip();
+    updateCurveButton();
 
     for (auto [label, text] : { std::pair { &inGainLabel, "IN" }, std::pair { &outGainLabel, "OUT" }, std::pair { &rangeLabel, "RANGE" }, std::pair { &scaleLabel, "SCALE" } })
     {
@@ -125,6 +128,7 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
 ParaEQAudioProcessorEditor::~ParaEQAudioProcessorEditor()
 {
     processor.setAnalyserWanted (false);
+    processor.stopMatchLearning();
     setLookAndFeel (nullptr);
 }
 
@@ -169,7 +173,7 @@ void ParaEQAudioProcessorEditor::showAnalyserMenu()
     static const Choice opacities[] = { { "25 %", 0.25 }, { "50 %", 0.5 }, { "75 %", 0.75 }, { "100 %", 1.0 } };
     static const Choice tilts[]     = { { "Off (0 dB/oct)", 0.0 }, { "3 dB/oct", 3.0 }, { "4.5 dB/oct", 4.5 } };
 
-    enum { showBase = 100, orderBase = 200, speedBase = 300, smoothBase = 400, opacityBase = 500, tiltBase = 600, peakId = 1 };
+    enum { showBase = 100, orderBase = 200, speedBase = 300, smoothBase = 400, opacityBase = 500, tiltBase = 600, peakId = 1, matchId = 2 };
 
     auto addGroup = [] (juce::PopupMenu& m, int base, const Choice* choices, int count, double current)
     {
@@ -192,6 +196,8 @@ void ParaEQAudioProcessorEditor::showAnalyserMenu()
     menu.addSubMenu ("Tilt", tiltM);
     menu.addSubMenu ("Opacity", opacityM);
     menu.addItem (peakId, "Peak hold", true, a.peakHold);
+    menu.addSeparator();
+    menu.addItem (matchId, "EQ Match (follow a reference track)...", true, matchPanel.isVisible());
 
     juce::Component::SafePointer<ParaEQAudioProcessorEditor> safe (this);
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&analyserButton),
@@ -199,6 +205,12 @@ void ParaEQAudioProcessorEditor::showAnalyserMenu()
     {
         if (safe == nullptr || r == 0)
             return;
+        if (r == matchId)
+        {
+            if (safe->matchPanel.isVisible()) safe->matchPanel.close();
+            else                              safe->matchPanel.open();
+            return;
+        }
         auto n = a;
         if      (r >= showBase && r < showBase + 4)       n.show = (AnalyserSettings::Show) (r - showBase);
         else if (r >= orderBase && r < orderBase + 4)     n.fftOrder = (int) orders[r - orderBase].value;
@@ -232,6 +244,59 @@ void ParaEQAudioProcessorEditor::timerCallback()
     redoButton.setEnabled (um.canRedo());
     updatePresetBar();
     updateAutoGainTooltip();
+    updateCurveButton();
+    matchPanel.update();
+}
+
+void ParaEQAudioProcessorEditor::updateCurveButton()
+{
+    auto& st = processor.getState();
+    const bool linear = st.getRawParameterValue (peq::params::linearPhase)->load() >= 0.5f;
+    const bool analog = st.getRawParameterValue (peq::params::analogMatch)->load() >= 0.5f;
+    const juce::String text = linear ? "Linear" : (analog ? "Analog" : "Classic");
+    if (analogButton.getButtonText() != text)
+        analogButton.setButtonText (text);
+    analogButton.setToggleState (linear || analog, juce::dontSendNotification);
+}
+
+void ParaEQAudioProcessorEditor::setCurveMode (int mode)
+{
+    // 0 = Classic, 1 = Analog, 2 = Linear (linear phase uses the analog shape).
+    auto set = [this] (const char* id, bool on)
+    {
+        auto* p = processor.getState().getParameter (id);
+        const float v = on ? 1.0f : 0.0f;
+        if (! juce::exactlyEqual (p->getValue(), v))
+        {
+            p->beginChangeGesture();
+            p->setValueNotifyingHost (v);
+            p->endChangeGesture();
+        }
+    };
+    processor.beginUndoStep ("Curve type");
+    set (peq::params::analogMatch, mode != 0);
+    set (peq::params::linearPhase, mode == 2);
+    processor.flushUndo();
+    updateCurveButton();
+}
+
+void ParaEQAudioProcessorEditor::showCurveMenu()
+{
+    auto& st = processor.getState();
+    const bool linear = st.getRawParameterValue (peq::params::linearPhase)->load() >= 0.5f;
+    const bool analog = st.getRawParameterValue (peq::params::analogMatch)->load() >= 0.5f;
+    const int current = linear ? 2 : (analog ? 1 : 0);
+    juce::PopupMenu m;
+    m.addSectionHeader ("Curve type");
+    m.addItem (2, "Analog  (zero latency)", true, current == 1);
+    m.addItem (1, "Classic  (zero latency, as in 1.0)", true, current == 0);
+    m.addItem (3, "Linear phase  (adds about 90 ms latency)", true, current == 2);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&analogButton),
+                     [safe = juce::Component::SafePointer<ParaEQAudioProcessorEditor> (this)] (int r)
+                     {
+                         if (safe != nullptr && r > 0)
+                             safe->setCurveMode (r - 1);
+                     });
 }
 
 void ParaEQAudioProcessorEditor::updateAutoGainTooltip()
@@ -580,4 +645,7 @@ void ParaEQAudioProcessorEditor::resized()
 
     bandPanel.setBounds (area.removeFromBottom (panelHeight));
     graph.setBounds (area);
+    matchPanel.setBounds (area.getX() + 48, area.getY() + 12,
+                          juce::jmin (peq::gui::MatchPanel::preferredWidth, area.getWidth() - 96),
+                          peq::gui::MatchPanel::preferredHeight);
 }

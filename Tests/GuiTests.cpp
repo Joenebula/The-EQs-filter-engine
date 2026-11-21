@@ -83,6 +83,31 @@ int main (int argc, char** argv)
             check (autoButton->getTooltip().contains ("Correction for the current curve"), "Auto button tooltip shows the correction");
             autoButton->setToggleState (false, juce::sendNotificationSync);
         }
+
+        // 1.5: the curve button (Analog / Classic / Linear).
+        auto findCurve = [&]() -> juce::TextButton*
+        {
+            for (auto* c : editor->getChildren())
+                if (auto* tb = dynamic_cast<juce::TextButton*> (c))
+                    if (tb->getButtonText() == "Analog" || tb->getButtonText() == "Classic" || tb->getButtonText() == "Linear")
+                        return tb;
+            return nullptr;
+        };
+        auto* curve = findCurve();
+        check (curve != nullptr && curve->getButtonText() == "Analog", "curve button shows Analog for a new instance");
+        auto paramOn = [&] (const char* id) { return proc->getState().getRawParameterValue (id)->load() >= 0.5f; };
+        editor->setCurveMode (2);
+        check (curve != nullptr && curve->getButtonText() == "Linear" && paramOn (peq::params::linearPhase)
+                   && paramOn (peq::params::analogMatch),
+               "curve menu: Linear switches linear phase on (analog shape)");
+        editor->setCurveMode (0);
+        check (curve != nullptr && curve->getButtonText() == "Classic" && ! paramOn (peq::params::linearPhase)
+                   && ! paramOn (peq::params::analogMatch),
+               "curve menu: Classic switches both off");
+        editor->setCurveMode (1);
+        check (curve != nullptr && curve->getButtonText() == "Analog" && ! paramOn (peq::params::linearPhase)
+                   && paramOn (peq::params::analogMatch),
+               "curve menu: Analog is analog-matched, minimum phase");
     }
 
     // Click at 1 kHz / +6 dB -> a bell band there.
@@ -379,6 +404,82 @@ int main (int argc, char** argv)
         check (text.contains ("440 Hz") && text.contains ("A4") && text.contains ("+3.0 dB"),
                "cursor readout shows frequency, note and level");
         std::printf ("       cursor readout at 440 Hz / +3 dB: \"%s\"\n", text.toRawUTF8());
+    }
+
+    // 1.6: EQ Match panel (opened from the Analyser menu).
+    {
+        editor->setSize (1040, 640);
+        auto& panel = editor->getMatchPanel();
+        check (! panel.isVisible(), "EQ Match panel is hidden at first");
+        panel.open();
+        check (panel.isVisible() && panel.getStatusText().contains ("side-chain") && ! panel.getApplyButton().isEnabled(),
+               "EQ Match panel opens and explains the side-chain when it is off");
+        check (panel.getBounds().getY() > 46 && panel.getRight() < editor->getWidth(), "EQ Match panel sits over the graph");
+
+        juce::AudioProcessor::BusesLayout l;
+        l.inputBuses.add (juce::AudioChannelSet::stereo());
+        l.inputBuses.add (juce::AudioChannelSet::stereo());
+        l.outputBuses.add (juce::AudioChannelSet::stereo());
+        proc->setBusesLayout (l);
+        proc->prepareToPlay (48000.0, 512);
+
+        int usedBefore = 0;
+        for (int b = 0; b < peq::FilterEngine::numBands; ++b)
+            usedBefore += value (*proc, b, BandField::used) > 0.5f ? 1 : 0;
+
+        panel.getLearnButton().onClick();
+        check (proc->isMatchLearning() && panel.getLearnButton().getButtonText() == "Stop", "Learn starts listening");
+        peq::BandParameters tilt;
+        tilt.type = peq::FilterType::HighShelf; tilt.frequencyHz = 3000.0; tilt.gainDb = 6.0; tilt.analogMatched = true;
+        peq::EQBand shelf;
+        shelf.prepare (48000.0);
+        shelf.setTarget (tilt);
+        shelf.snapToTarget();
+        juce::AudioBuffer<float> buf (4, 512);
+        juce::MidiBuffer matchMidi;
+        juce::Random matchRng (3);
+        std::vector<double> ref (512);
+        for (int block = 0; block < 48000 * 5 / 512; ++block)
+        {
+            for (int i = 0; i < 512; ++i)
+            {
+                const float x = (matchRng.nextFloat() - 0.5f) * 0.4f;
+                buf.setSample (0, i, x);
+                buf.setSample (1, i, x);
+                ref[(size_t) i] = (matchRng.nextDouble() - 0.5) * 0.4;
+            }
+            double* ch[1] { ref.data() };
+            shelf.process (ch, 1, 512);
+            for (int i = 0; i < 512; ++i)
+            {
+                buf.setSample (2, i, (float) ref[(size_t) i]);
+                buf.setSample (3, i, (float) ref[(size_t) i]);
+            }
+            proc->processBlock (buf, matchMidi);
+            if (block % 40 == 0)
+                proc->pumpMatch();
+        }
+        proc->pumpMatch();
+        panel.update();
+        check (panel.getStatusText().contains ("Listening") && panel.getApplyButton().isEnabled() && graph.isShowingMatchCurve(),
+               "while learning: progress shown, Apply enabled, correction drawn on the graph");
+        std::printf ("       EQ Match status: \"%s\"\n", panel.getStatusText().toRawUTF8());
+        save (*editor, outDir.getChildFile ("10-match.png"));
+
+        panel.getApplyButton().onClick();
+        int usedAfter = 0;
+        for (int b = 0; b < peq::FilterEngine::numBands; ++b)
+            usedAfter += value (*proc, b, BandField::used) > 0.5f ? 1 : 0;
+        check (usedAfter > usedBefore && usedAfter - usedBefore <= panel.getBandsBox().getSelectedId()
+                   && ! proc->isMatchLearning() && panel.getStatusText().contains ("Added") && ! graph.isShowingMatchCurve(),
+               "Apply adds bands (no more than chosen), stops listening, hides the dashed line");
+        std::printf ("       EQ Match status: \"%s\"\n", panel.getStatusText().toRawUTF8());
+        graph.pollParameters();
+        save (*editor, outDir.getChildFile ("11-match-applied.png"));
+
+        panel.getLearnButton().onClick();
+        panel.close();
+        check (! panel.isVisible() && ! proc->isMatchLearning(), "closing the panel stops listening");
     }
 
     base.reset();

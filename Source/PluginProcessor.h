@@ -1,6 +1,8 @@
 #pragma once
 
 #include "DSP/FilterEngine.h"
+#include "DSP/LinearPhase.h"
+#include "DSP/EQMatch.h"
 #include "DSP/SampleFifo.h"
 #include "PresetManager.h"
 
@@ -15,17 +17,46 @@
     saved with the project. Processing is double precision throughout.
 */
 class ParaEQAudioProcessor final : public juce::AudioProcessor,
-                                   private juce::AsyncUpdater
+                                   private juce::AsyncUpdater,
+                                   private juce::Timer
 {
 public:
     ParaEQAudioProcessor();
-    ~ParaEQAudioProcessor() override { cancelPendingUpdate(); }
+    ~ParaEQAudioProcessor() override { stopTimer(); cancelPendingUpdate(); }
+
+    /** Total latency right now: look-ahead plus linear phase (samples). */
+    int getCurrentLatency() const noexcept
+    {
+        return getLookaheadLatency() + (linearActive.load() ? fir.latencySamples() : 0);
+    }
+    bool isLinearPhaseActive() const noexcept { return linearActive.load(); }
+    /** Designs and installs the linear-phase kernel now if the curve changed
+        (message thread; normally done by a timer, called by tests). Returns
+        true if a new kernel was handed to the convolver. */
+    bool updateLinearPhaseKernel();
 
     /** Latency added by look-ahead right now (samples; 0 when off). */
     int getLookaheadLatency() const noexcept { return lookaheadActive.load() ? lookaheadSamples : 0; }
     /** Reports a pending latency change to the host now instead of on the
         next message loop pass (message thread; used by tests). */
     void flushLatencyUpdate() { handleUpdateNowIfNeeded(); }
+
+    /** EQ Match (1.6). While learning, the audio thread sends this track's
+        input and the sidechain (the reference) to the matcher, which a
+        message-thread timer feeds. Message thread only. */
+    void startMatchLearning();
+    void stopMatchLearning() noexcept { matchLearning.store (false); }
+    bool isMatchLearning() const noexcept { return matchLearning.load(); }
+    /** Moves the audio collected so far into the matcher (normally the timer;
+        called by tests). */
+    void pumpMatch();
+    const peq::EQMatch& getMatch() const noexcept { return match; }
+    /** Fits up to maxBands bands to `amount` (0..1) of what was learned and
+        writes them into unused bands, as one undo step. Returns how many
+        bands were added (0 if nothing was learned or no band is free). */
+    int applyMatch (int maxBands, double amount);
+    /** True when the host has switched the sidechain input on. */
+    bool isSidechainActive() const;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -191,6 +222,35 @@ private:
     // Look-ahead (1.4): the main channels run through a fixed delay while the
     // dynamic detectors hear the undelayed input.
     void handleAsyncUpdate() override;        // reports the new latency (message thread)
+    void timerCallback() override
+    {
+        updateLinearPhaseKernel();
+        pumpMatch();
+    }
+
+    peq::EQMatch match;
+    peq::SampleFifo matchSourceFifo, matchReferenceFifo;
+    std::vector<float> matchScratch, matchDrain;
+    std::atomic<bool> matchLearning { false };
+    double matchRate = 0.0;
+    void pushToMatch (const juce::AudioBuffer<double>& buffer, int numChannels,
+                      const double* const* sidechain, int numSidechain) noexcept;
+    void delayDry (int numChannels, int numSamples) noexcept;
+
+    // Linear phase (1.5): bands that are Stereo, static (not dynamic) and on
+    // go into one linear-phase FIR after the IIR engine; the rest stay IIR.
+    bool isLinearBand (int band) const noexcept;
+    peq::BandParameters bandParametersFor (int band) const noexcept;
+    std::atomic<float>* linearParam = nullptr;
+    std::atomic<bool> linearActive { false };
+    std::atomic<bool> kernelReady { false };  // a kernel for the current prepare was installed
+    peq::LinearPhaseFIR fir;
+    std::vector<double> kernel;               // message thread scratch
+    std::array<peq::BandParameters, peq::FilterEngine::numBands> kernelBands {};
+    bool kernelDesigned = false;
+    double preparedRate = 0.0;
+    juce::AudioBuffer<double> dryDelay;       // dry path delayed like the FIR
+    int dryDelayPos = 0;
     void applyLookaheadDelay (juce::AudioBuffer<double>& buffer, int numChannels) noexcept;
     std::atomic<float>* lookaheadParam = nullptr;
     std::atomic<bool> lookaheadActive { false };
