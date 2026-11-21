@@ -197,7 +197,7 @@ void ParaEQAudioProcessorEditor::showAnalyserMenu()
     static const Choice tilts[]     = { { "Off (0 dB/oct)", 0.0 }, { "3 dB/oct", 3.0 }, { "4.5 dB/oct", 4.5 } };
     static const Choice channels[]  = { { "Stereo (L+R)", 0 }, { "Left", 1 }, { "Right", 2 }, { "Side (L-R)", 3 } };
 
-    enum { showBase = 100, orderBase = 200, speedBase = 300, smoothBase = 400, opacityBase = 500, tiltBase = 600, channelBase = 700, peakId = 1, matchId = 2, sidechainId = 3, resonanceId = 4, clashId = 5 };
+    enum { showBase = 100, orderBase = 200, speedBase = 300, smoothBase = 400, opacityBase = 500, tiltBase = 600, channelBase = 700, peakId = 1, matchId = 2, sidechainId = 3, resonanceId = 4, clashId = 5, snapshotId = 6, clearSnapshotId = 7 };
 
     auto addGroup = [] (juce::PopupMenu& m, int base, const Choice* choices, int count, double current)
     {
@@ -226,6 +226,9 @@ void ParaEQAudioProcessorEditor::showAnalyserMenu()
     menu.addItem (resonanceId, "Find resonances (click a marker to cut)", true, a.findResonances);
     menu.addItem (clashId, "Show clashes with side-chain (click a bar to cut)", true, a.showClashes);
     menu.addSeparator();
+    menu.addItem (snapshotId, "Take snapshot (compare later)", a.enabled());
+    menu.addItem (clearSnapshotId, "Clear snapshot", graph.hasSnapshot());
+    menu.addSeparator();
     menu.addItem (matchId, "EQ Match (follow a reference track)...", true, matchPanel.isVisible());
 
     juce::Component::SafePointer<ParaEQAudioProcessorEditor> safe (this);
@@ -234,6 +237,8 @@ void ParaEQAudioProcessorEditor::showAnalyserMenu()
     {
         if (safe == nullptr || r == 0)
             return;
+        if (r == snapshotId)      { safe->graph.takeSnapshot(); return; }
+        if (r == clearSnapshotId) { safe->graph.clearSnapshot(); return; }
         if (r == matchId)
         {
             if (safe->matchPanel.isVisible()) safe->matchPanel.close();

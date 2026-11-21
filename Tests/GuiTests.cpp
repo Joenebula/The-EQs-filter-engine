@@ -722,6 +722,61 @@ int main (int argc, char** argv)
         graph.setListenWhileDragging (false);
     }
 
+    // 2.3: analyser snapshot.
+    {
+        auto a = graph.getAnalyserSettings();
+        a.show = peq::gui::AnalyserSettings::Show::post;
+        a.channel = 0;
+        graph.setAnalyserSettings (a);
+        juce::AudioBuffer<float> buf (4, 512);
+        juce::MidiBuffer sMidi;
+        juce::Random sRng (31);
+        double low = 0.0;
+        auto feed = [&] (bool dark)
+        {
+            for (int block = 0; block < 120; ++block)
+            {
+                for (int i = 0; i < 512; ++i)
+                {
+                    const double w = sRng.nextDouble() - 0.5;
+                    low += 0.05 * (w - low);
+                    const float x = dark ? (float) (low * 1.0) : (float) (w * 0.3);   // dark = mostly lows
+                    buf.setSample (0, i, x);
+                    buf.setSample (1, i, x);
+                    buf.setSample (2, i, 0.0f);
+                    buf.setSample (3, i, 0.0f);
+                }
+                proc->processBlock (buf, sMidi);
+                graph.updateAnalyser (512.0 / 48000.0);
+            }
+        };
+        auto levelAt = [&] (double hz)
+        {
+            const auto& pa = graph.getPostAnalyser();
+            return peq::SpectrumAnalyser::levelAt (pa.levelsDb(), hz, pa.sampleRate() / (double) pa.fftSize(), 1.0 / 6.0);
+        };
+        feed (false);
+        const double brightHigh = levelAt (8000.0);
+        check (! graph.hasSnapshot() && graph.takeSnapshot() && graph.hasSnapshot(), "snapshot: taken from the playing spectrum");
+        feed (true);
+        std::printf ("       8 kHz: snapshot time %.1f dBFS, now %.1f dBFS\n", brightHigh, levelAt (8000.0));
+        check (levelAt (8000.0) < brightHigh - 10.0, "snapshot: the live spectrum moves on while the snapshot stays");
+        graph.pollParameters();
+        graph.setSelectedBand (0);
+        editor->timerCallbackForTests();
+        graph.repaint();
+        save (*editor, outDir.getChildFile ("18-snapshot.png"));
+        auto b = a;
+        b.fftOrder = a.fftOrder == 13 ? 12 : 13;
+        graph.setAnalyserSettings (b);
+        check (! graph.hasSnapshot(), "snapshot: cleared when the resolution changes");
+        graph.setAnalyserSettings (a);
+        feed (false);
+        graph.takeSnapshot();
+        graph.clearSnapshot();
+        check (! graph.hasSnapshot(), "snapshot: Clear removes it");
+    }
+
     base.reset();
     std::printf ("\n%s (%d failures)\n", failures == 0 ? "ALL GUI CHECKS PASSED" : "GUI CHECKS FAILED", failures);
     return failures == 0 ? 0 : 1;

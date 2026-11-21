@@ -334,12 +334,35 @@ void EQGraph::configureAnalysers()
         return;
     analyserRate = sr;
     analyserOrder = analyser.fftOrder;
+    snapshotDb.clear();   // bins no longer line up
     for (auto* a : { &preAnalyser, &postAnalyser, &sidechainAnalyser })
     {
         a->configure (analyserOrder, sr);
         a->setReleaseSeconds (analyser.releaseSeconds);
         a->setPeakHold (analyser.peakHold);
     }
+}
+
+bool EQGraph::takeSnapshot()
+{
+    if (! analyser.enabled())
+        return false;
+    const auto& source = analyser.showPost() ? postAnalyser : preAnalyser;
+    const auto& db = source.levelsDb();
+    bool any = false;
+    for (double v : db)
+        any = any || v > SpectrumAnalyser::floorDb + 1.0;
+    if (! any)
+        return false;   // nothing playing: nothing to keep
+    snapshotDb = db;
+    repaint();
+    return true;
+}
+
+void EQGraph::clearSnapshot()
+{
+    snapshotDb.clear();
+    repaint();
 }
 
 bool EQGraph::updateAnalyser (double elapsedSeconds)
@@ -918,6 +941,19 @@ void EQGraph::drawSpectrum (juce::Graphics& g, juce::Rectangle<float> plot) cons
             g.setColour (juce::Colour (0xffb0b8c6).withAlpha (0.5f * alpha));
             g.strokePath (buildPath (preAnalyser.peaksDb(), false), juce::PathStrokeType (0.8f));
         }
+    }
+
+    if (! snapshotDb.empty() && snapshotDb.size() == preAnalyser.levelsDb().size())
+    {
+        // The frozen spectrum: a dotted pale line.
+        juce::Path dotted;
+        const float dashes[] = { 2.0f, 3.0f };
+        juce::PathStrokeType (1.6f).createDashedStroke (dotted, buildPath (snapshotDb, false), dashes, 2);
+        g.setColour (juce::Colour (0xffe8ecf4).withAlpha (0.85f));
+        g.fillPath (dotted);
+        g.setFont (theme::font (11.0f, true));
+        g.drawText ("SNAPSHOT", plot.reduced (12.0f, 6.0f).withTrimmedRight (40.0f).withTrimmedTop (32.0f),
+                    juce::Justification::topRight);
     }
 
     if (analyser.showSidechain && sidechainFrames > 0)

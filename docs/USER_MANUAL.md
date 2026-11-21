@@ -5,7 +5,7 @@ Cubase. It has a large interactive EQ graph, a real-time spectrum analyser,
 dynamic EQ on any bell or shelf (with an external sidechain), left/right/mid/side processing per band,
 presets, A/B compare and full automation.
 
-Version 2.2 · Vendor "Home Studio" · Personal use.
+Version 2.3 · Vendor "Home Studio" · Personal use.
 
 ---
 
@@ -320,6 +320,7 @@ Settings (**Analyser** button):
 | Find resonances | Marks rings in the spectrum with small amber triangles; click one to cut it (see below) |
 | Show side-chain | Also draws the track on ParaEQ's side-chain input, as an amber line (see below) |
 | Show clashes with side-chain | Shades the ranges where the side-chain track masks this one; click the red bar to cut (see below) |
+| Take snapshot / Clear snapshot | Freezes the spectrum as a dotted line to compare against (see below) |
 | EQ Match | Opens the EQ Match panel (see below) |
 
 The analyser only runs while the window is open.
@@ -340,6 +341,20 @@ whichever channel is chosen, but the side-chain line is always the other
 track's stereo sum. Saved with the analyser settings.
 
 ![The analyser set to Side: only the side-only tone at 5 kHz shows, the centred noise is gone](screenshot-side.png)
+
+### Snapshot (compare two moments)
+
+**Take snapshot** freezes the spectrum on screen right now (the output, or
+the input if only Pre-EQ is shown) as a dotted pale line labelled SNAPSHOT.
+The live analyser carries on underneath, so you can compare. For example,
+snapshot the chorus and play the verse, snapshot before an EQ move and look
+after it, or snapshot a reference mix playing through the track and then
+play your own. **Clear snapshot** removes it. Taking a new one replaces the
+old one. Nothing is taken if nothing is playing. The snapshot isn't saved:
+it goes when you close the window, or when you change the analyser's
+resolution, because the points no longer line up.
+
+![A snapshot of bright noise (dotted) over the live spectrum of a darker sound](screenshot-snapshot.png)
 
 ### Finding resonances
 

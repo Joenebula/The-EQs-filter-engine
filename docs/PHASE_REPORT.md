@@ -1,3 +1,25 @@
+# Version 2.3: analyser snapshot (2026-11-21)
+
+## What changed
+
+- **Analyser > Take snapshot / Clear snapshot**: copies the shown spectrum
+  (post, or pre if only pre is shown) and draws it as a dotted pale line
+  with the same smoothing and tilt as the live display, labelled SNAPSHOT.
+  Refused when nothing is playing. Not saved; cleared when the FFT size or
+  sample rate changes (bins no longer line up).
+- Editor only: no audio-thread changes.
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **81 tests, 0 failures** (unchanged) |
+| Plugin tests (Linux; Windows CI) | **147 checks, 0 failures** (unchanged) |
+| ThreadSanitizer | Not re-run: no audio-thread code changed since 2.1 (0 warnings there) |
+| GUI tests (Linux, Xvfb) | **All pass** (4 new: a snapshot is taken from playing noise; when darker audio follows, the live 8 kHz level falls 15 dB while the snapshot stays; changing resolution clears it; Clear removes it) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** |
+
 # Version 2.2: listen while dragging (2026-11-21)
 
 ## What changed
