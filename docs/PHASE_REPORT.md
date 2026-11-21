@@ -1,3 +1,29 @@
+# Version 2.4: learn threshold (2026-11-21)
+
+## What changed
+
+- **Learn** button under a dynamic band's Threshold knob. For 4 s the panel
+  reads the band's highest detector level 20 times a second (new
+  `takeDetectorPeakDb`: the audio thread keeps each band's maximum detector
+  level per read in an atomic, compare-and-swap like the output meter), then
+  `dynamics::thresholdFromLevels` sets Threshold to the 75th percentile of
+  the audible readings (readings below -70 dBFS ignored), rounded to 0.5 dB,
+  as one undo step. Fewer than 8 audible readings, or audible less than a
+  quarter of the time: nothing changes and the button says "No audio".
+  Clicking again cancels; switching band or turning Dynamic off cancels.
+- New `FilterEngine::detectorLevelDb`.
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **83 tests, 0 failures** (2 new: even readings from -40 to -20 dBFS give -25.0 (75th percentile), half gives -30, 0.5 dB steps, order and silence don't matter; too few / mostly silent / dying-tail readings give nothing, results stay in range) |
+| Plugin tests (Linux; Windows CI) | **152 checks, 0 failures** (5 new: nothing before audio; a -20 dBFS sine at a dynamic band reads -19.88 dBFS; reading resets it; a band without dynamics reads silence; bad band numbers are safe). The no-allocation test covers the new code |
+| ThreadSanitizer (plugin tests) | **0 warnings.** The two CPU-time checks fail under TSan's slowdown, as always |
+| GUI tests (Linux, Xvfb) | **All pass** (6 new: button live on a dynamic band; starts listening; a steady -20 dBFS tone learns -20.0; one undo restores -50; silence changes nothing and shows "No audio"; button off when the band isn't dynamic) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** |
+
 # Version 2.3: analyser snapshot (2026-11-21)
 
 ## What changed

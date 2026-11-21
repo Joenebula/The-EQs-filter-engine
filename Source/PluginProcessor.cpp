@@ -19,6 +19,8 @@ ParaEQAudioProcessor::ParaEQAudioProcessor()
                           .withInput  ("Sidechain", juce::AudioChannelSet::stereo(), false)),
       apvts (*this, &undoManager, "ParaEQState", peq::params::createLayout())
 {
+    for (auto& p : detectorPeakDb)
+        p.store (-200.0f);
     inputGainDb  = apvts.getRawParameterValue (peq::params::inputGain);
     outputGainDb = apvts.getRawParameterValue (peq::params::outputGain);
     bypassParam  = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (peq::params::bypass));
@@ -495,7 +497,14 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
     pushToAnalyser (postFifo, buffer, numChannels);
 
     for (int b = 0; b < peq::FilterEngine::numBands; ++b)
+    {
         dynamicGainDb[(size_t) b].store ((float) engine.dynamicOffsetDb (b), std::memory_order_relaxed);
+        // Highest detector level, held until the editor takes it (Learn threshold).
+        const float level = (float) juce::jmax (-200.0, engine.detectorLevelDb (b));
+        auto& slot = detectorPeakDb[(size_t) b];
+        float prev = slot.load (std::memory_order_relaxed);
+        while (level > prev && ! slot.compare_exchange_weak (prev, level, std::memory_order_relaxed)) {}
+    }
     for (int ch = numChannels; ch < buffer.getNumChannels(); ++ch)   // sidechain / unused
         buffer.clear (ch, 0, numSamples);
     publishMeters (buffer, numChannels);

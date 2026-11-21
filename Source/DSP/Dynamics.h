@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <vector>
 
 namespace peq
 {
@@ -53,6 +55,28 @@ namespace dynamics
     }
     /** Soft knee width around the threshold, in dB. */
     constexpr double kneeDb = 6.0;
+
+    /** Learn threshold (2.4): a threshold from detector levels collected
+        while the music plays (dBFS, any order). Readings below -70 dBFS
+        (10 dB under the lowest threshold: silence, or a tail dying away)
+        are ignored. Returns the level that only the loudest
+        `loudestFraction` of the audible readings go over, rounded to 0.5 dB
+        and kept within the threshold range, or NaN when fewer than 8
+        readings, or fewer than a quarter of all of them, were audible. */
+    inline double thresholdFromLevels (std::vector<double> levels, double loudestFraction = 0.25)
+    {
+        const size_t total = levels.size();
+        levels.erase (std::remove_if (levels.begin(), levels.end(),
+                                      [] (double v) { return ! std::isfinite (v) || v < minThresholdDb - 10.0; }),
+                      levels.end());
+        if (levels.size() < 8 || levels.size() * 4 < total)
+            return std::numeric_limits<double>::quiet_NaN();
+        std::sort (levels.begin(), levels.end());
+        const double f = std::clamp (loudestFraction, 0.0, 1.0);
+        const auto index = (size_t) std::lround ((1.0 - f) * (double) (levels.size() - 1));
+        const double t = std::round (levels[index] * 2.0) * 0.5;
+        return std::clamp (t, minThresholdDb, maxThresholdDb);
+    }
 
     /** Only types with a gain control can be dynamic. */
     inline bool typeSupportsDynamics (FilterType t) noexcept

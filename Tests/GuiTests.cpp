@@ -777,6 +777,71 @@ int main (int argc, char** argv)
         check (! graph.hasSnapshot(), "snapshot: Clear removes it");
     }
 
+    // 2.4: learn threshold.
+    {
+        using peq::params::BandField;
+        auto setBand0 = [&] (BandField f, float v)
+        {
+            auto* prm = proc->getState().getParameter (peq::params::bandID (0, f));
+            prm->setValueNotifyingHost (prm->convertTo0to1 (v));
+        };
+        setBand0 (BandField::dyn, 1.0f);
+        setBand0 (BandField::thr, -50.0f);
+        graph.pollParameters();
+        graph.setSelectedBand (0);
+        auto& panel = editor->getBandPanel();
+        panel.refreshActivity();
+        check (panel.getLearnButton().isVisible() && panel.getLearnButton().isEnabled(), "learn threshold: the button is live on a dynamic band");
+        juce::AudioBuffer<float> buf (4, 512);
+        juce::MidiBuffer lMidi;
+        long t = 0;
+        auto play = [&] (float amp, double seconds, bool shot)
+        {
+            const int blocks = (int) (seconds * 48000.0 / 512.0) + 1;
+            for (int block = 0; block < blocks; ++block)
+            {
+                for (int i = 0; i < 512; ++i, ++t)
+                {
+                    const float s = amp * (float) std::sin (2.0 * 3.14159265358979 * 1000.0 * (double) t / 48000.0);
+                    buf.setSample (0, i, s);
+                    buf.setSample (1, i, s);
+                    buf.setSample (2, i, 0.0f);
+                    buf.setSample (3, i, 0.0f);
+                }
+                proc->processBlock (buf, lMidi);
+                graph.updateAnalyser (512.0 / 48000.0);
+                panel.learnTick (512.0 / 48000.0);
+                if (shot && block == blocks / 2)
+                {
+                    panel.refreshActivity();   // live gain-change bar
+                    graph.pollParameters();
+                    panel.repaint();
+                    save (*editor, outDir.getChildFile ("19-learn.png"));
+                }
+            }
+        };
+        play (0.1f, 0.3, false);                    // settle the detector
+        panel.startLearning();
+        check (panel.isLearning() && panel.getLearnButton().getButtonText() == "Listening", "learn threshold: starts listening");
+        play (0.1f, peq::gui::BandPanel::learnSeconds + 0.2, true);   // -20 dBFS at the band
+        const float learned = value (*proc, 0, BandField::thr);
+        std::printf ("       learned threshold: %.1f dBFS\n", (double) learned);
+        check (! panel.isLearning() && near (learned, -20.0, 1.0), "learn threshold: a steady -20 dBFS tone gives about -20 dBFS");
+        proc->getUndoManager().undo();
+        check (near (value (*proc, 0, BandField::thr), -50.0, 0.05), "learn threshold: one undo puts the old threshold back");
+        play (0.0f, 2.0, false);                    // let the detector fall silent
+        panel.startLearning();
+        play (0.0f, peq::gui::BandPanel::learnSeconds + 0.2, false);
+        std::printf ("       after silence: threshold %.1f, button \"%s\"\n", (double) value (*proc, 0, BandField::thr),
+                     panel.getLearnButton().getButtonText().toRawUTF8());
+        check (! panel.isLearning() && near (value (*proc, 0, BandField::thr), -50.0, 0.05)
+                   && panel.getLearnButton().getButtonText() == "No audio",
+               "learn threshold: silence changes nothing and says so");
+        setBand0 (BandField::dyn, 0.0f);
+        panel.refreshActivity();
+        check (! panel.getLearnButton().isEnabled(), "learn threshold: off when the band isn't dynamic");
+    }
+
     base.reset();
     std::printf ("\n%s (%d failures)\n", failures == 0 ? "ALL GUI CHECKS PASSED" : "GUI CHECKS FAILED", failures);
     return failures == 0 ? 0 : 1;

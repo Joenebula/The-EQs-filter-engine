@@ -727,6 +727,33 @@ int main()
                "analyser channel: the post-EQ feed follows the same choice");
     }
 
+    // Learn threshold feed (2.4): each band's highest detector level per read.
+    {
+        auto p = makeProcessor (48000.0, 512);
+        setupBell (*p, 0.0f);
+        setValue (bandParam (*p, 0, BandField::dyn), 1.0f);
+        check (p->takeDetectorPeakDb (0) <= -199.0f, "detector feed: nothing before audio");
+        juce::AudioBuffer<float> buf (2, 512);
+        juce::MidiBuffer midi;
+        long t = 0;
+        for (int block = 0; block < 40; ++block)
+        {
+            for (int i = 0; i < 512; ++i, ++t)
+            {
+                const float s = 0.1f * (float) std::sin (2.0 * 3.14159265358979 * 1000.0 * (double) t / 48000.0);   // -20 dBFS
+                buf.setSample (0, i, s);
+                buf.setSample (1, i, s);
+            }
+            p->processBlock (buf, midi);
+        }
+        const float level = p->takeDetectorPeakDb (0);
+        std::printf ("       detector peak for a -20 dBFS sine at the band: %.2f dBFS\n", level);
+        check (near (level, -20.0, 1.0), "detector feed: a -20 dBFS sine at the band reads about -20 dBFS");
+        check (p->takeDetectorPeakDb (0) <= -199.0f, "detector feed: reading it resets it");
+        check (p->takeDetectorPeakDb (5) <= -150.0f, "detector feed: a band without dynamics reads silence");
+        check (p->takeDetectorPeakDb (-1) <= -199.0f && p->takeDetectorPeakDb (99) <= -199.0f, "detector feed: bad band numbers are safe");
+    }
+
     // EQ Match (1.6): learn this track against the sidechain, add bands.
     {
         auto p = makeProcessor (48000.0, 512);

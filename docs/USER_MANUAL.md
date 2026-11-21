@@ -5,7 +5,7 @@ Cubase. It has a large interactive EQ graph, a real-time spectrum analyser,
 dynamic EQ on any bell or shelf (with an external sidechain), left/right/mid/side processing per band,
 presets, A/B compare and full automation.
 
-Version 2.3 · Vendor "Home Studio" · Personal use.
+Version 2.4 · Vendor "Home Studio" · Personal use.
 
 ---
 
@@ -227,6 +227,10 @@ bells and shelves.
 2. **Threshold**: the level (in dBFS of that region) where it starts to act.
    The live bar under the Dynamic button shows the gain change as it happens;
    set the threshold so it moves on the loud parts only.
+   Or let ParaEQ set it: play the music and click **Learn** (under the
+   Threshold knob). It listens to the band's region for 4 seconds and sets
+   the threshold so the band works on roughly the loudest quarter (see
+   "Learn threshold" below).
 3. **Range**: the most the gain may move. Negative turns the band **down**
    when loud (taming harsh "s" sounds, a boomy note). Positive turns it **up**
    when loud.
@@ -255,6 +259,21 @@ band-pass at the band's frequency and Q for a bell, low or high frequencies
 for a shelf). L/R/M/S bands listen only to their own channel. Above the
 threshold the gain moves by the ratio (1 dB for every 2 dB over at 2:1),
 with a soft knee, up to the range.
+
+### Learn threshold
+
+Setting the threshold by ear is the fiddly part of dynamic EQ, so **Learn**
+does a first pass for you. With the band set to Dynamic and the music
+playing (a typical section, not a quiet intro), click **Learn**. The button
+says *Listening* for 4 seconds while ParaEQ measures how loud the band's
+region gets, then it sets **Threshold** to the level only the loudest
+quarter of that goes over, and the button goes back to *Learn*. It's one undo
+step, so Ctrl+Z puts the old threshold back. Click the button again while
+it's listening to cancel. If nothing much was playing, nothing changes and
+the button says *No audio* for a moment. Fine-tune by ear afterwards with
+the live bar: more negative Threshold = acts more often.
+
+![Learn listening on a dynamic band](screenshot-learn.png)
 
 ### Look-ahead
 
