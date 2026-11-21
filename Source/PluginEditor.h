@@ -45,6 +45,12 @@ private:
     void exportPreset();
     void updatePresetBar();
     void updateAutoGainTooltip();
+    void updateCurveButton();
+    void showCurveMenu();
+public:
+    /** 0 = Classic, 1 = Analog, 2 = Linear phase (also used by tests). */
+    void setCurveMode (int mode);
+private:
 
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
@@ -67,7 +73,7 @@ private:
     peq::gui::OutputMeter outputMeter;
     juce::TooltipWindow tooltips { this, 600 };
     std::unique_ptr<SliderAttachment> inGainAtt, outGainAtt, scaleAtt;
-    std::unique_ptr<ButtonAttachment> bypassAtt, analogAtt, autoGainAtt;
+    std::unique_ptr<ButtonAttachment> bypassAtt, autoGainAtt;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParaEQAudioProcessorEditor)
 };

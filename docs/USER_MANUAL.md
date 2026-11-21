@@ -5,7 +5,7 @@ Cubase. It has a large interactive EQ graph, a real-time spectrum analyser,
 dynamic EQ on any bell or shelf (with an external sidechain), left/right/mid/side processing per band,
 presets, A/B compare and full automation.
 
-Version 1.4 · Vendor "Home Studio" · Personal use.
+Version 1.5 · Vendor "Home Studio" · Personal use.
 
 ---
 
@@ -57,7 +57,7 @@ From left to right along the top:
 | **A** / **B** | Switches between two complete settings to compare them. |
 | **+/- 18 dB** | Vertical scale of the graph (6, 12, 18 or 30 dB). Display only. |
 | **Analyser** | Spectrum analyser settings. |
-| **Analog** | Analog-matched curves (see below). On by default. |
+| **Analog** / **Classic** / **Linear** | Curve type menu: **Analog** (analog-matched curves, the default), **Classic** (plain digital curves) or **Linear** (linear phase). See below. |
 | Scale knob | **Gain Scale**: makes every band's boost or cut bigger or smaller together, 0 to 200 %. 100 % = as set, 0 % = flat. Double-click for 100 %. Saved in presets. |
 | **IN / OUT** | Input and output gain, -24 to +24 dB. Double-click to reset. |
 | **Auto** | **Auto Gain**: keeps the overall level the same as you EQ, so you hear the tone change rather than "louder = better". Hover over it to see the correction it's applying. Off by default. |
@@ -89,8 +89,31 @@ shelf can't keep rising past about 18 kHz. With **Analog** on (the default),
 every band keeps the shape an analogue EQ would have, right up to 20 kHz. There
 is no added latency and no extra CPU worth measuring.
 
-Turn it off for the classic digital curves. Projects made with ParaEQ 1.0 open
-with it off, so they sound exactly as they did. It is not part of a preset.
+Choose **Classic** in the curve menu for the plain digital curves. Projects
+made with ParaEQ 1.0 open as Classic, so they sound exactly as they did. The
+curve type is not part of a preset.
+
+### Linear phase
+
+A normal EQ (Analog or Classic) shifts the timing of the frequencies it
+changes a little. That's how analogue EQs behave too, and it's usually what you
+want. Choose **Linear** in the curve menu when it matters that nothing is
+smeared in time: mastering, parallel or multi-mic sources (where the EQ'd copy
+is mixed with an un-EQ'd one), or big low cuts on drums.
+
+- The curve is the same shape as **Analog**; only the timing changes.
+- It adds about **91 ms** of latency (4352 samples at 44.1/48 kHz, 8448 at
+  88.2/96 kHz). Cubase compensates for it on playback, but it's not for
+  recording or live monitoring. **Switch modes while playback is stopped**;
+  switching while playing causes a short jump while Cubase catches up.
+- Static bands set to **Stereo** go linear phase. Dynamic bands and bands set
+  to L, R, Mid or Side stay as normal EQ, so they still react instantly.
+- When you move a band, the new curve fades in within about 40 ms instead
+  of gliding, so very fast automation on a linear band sounds steppy.
+- Very narrow moves below about 50 Hz come out a little softer than set
+  (the filter can only be so long).
+- It uses more CPU: about 4 % of one core for a busy instance on the test
+  machine, against under 2 % for the normal modes.
 
 ---
 
@@ -306,9 +329,10 @@ is in the preset menu. Both settings are saved with the project.
   "Band 1 Gain", and so on, grouped by band.
 - **Side-chain**: ParaEQ has an optional side-chain input for dynamic
   bands set to **SC** (see Dynamic EQ). It is off until you activate it.
-- **Latency**: zero, unless **LA** (look-ahead) is on, which adds 5 ms
-  that Cubase compensates. With LA off it's safe for recording and live
-  monitoring.
+- **Latency**: zero, unless **LA** (look-ahead) is on, which adds 5 ms, or
+  the curve type is **Linear**, which adds about 91 ms. Cubase compensates
+  for both. With neither on, it's safe for recording and live monitoring.
+  Change these while playback is stopped.
 - **64-bit processing**: supported (Studio > Studio Setup > Audio System >
   Processing Precision). ParaEQ works in 64-bit inside either way.
 - **Sample rates**: anything from 22.05 to 192 kHz. Bands above what the
@@ -343,6 +367,7 @@ is in the preset menu. Both settings are saved with the project.
 | The analyser is flat | It only shows while audio plays and the window is open. Check Analyser > Show isn't Off. |
 | Ctrl+Z undoes something in Cubase instead | Click inside the ParaEQ window first, or use the Undo button. |
 | A band set to **SC** never moves | Activate the side-chain on ParaEQ's window frame in Cubase, check the other track's send goes to *ParaEQ - Side-Chain* and is turned up, then lower **Threshold**. |
+| Everything sounds late or out of sync after choosing **Linear** | Stop and start playback so Cubase picks up the new latency. Don't use Linear while recording. |
 | Output meter shows red | The output went over 0 dBFS. Lower **OUT** or the boosts. |
 
 ## 11. Known limitations
@@ -351,6 +376,8 @@ is in the preset menu. Both settings are saved with the project.
   it's smooth but not sample-accurate.
 - Look-ahead is fixed at 5 ms. The dynamic knee (6 dB) is fixed.
 - Auto Gain is an estimate from the curve, not a loudness measurement.
+- Linear phase applies only to static Stereo bands, its latency is fixed per
+  sample rate, and its curve changes fade in rather than glide.
 - The combined curve is exact only for Stereo bands.
 - Analog-matched curves are very close to analogue but not perfect for
   bands centred right next to the top of the spectrum (about 1 dB on an

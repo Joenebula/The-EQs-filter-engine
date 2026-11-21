@@ -1,3 +1,34 @@
+# Version 1.5: linear-phase mode (2026-11-21)
+
+## What changed
+
+- **Linear phase** (global parameter `linear_phase`, off by default, not
+  automatable, not in presets). The top bar's Analog button is now a curve
+  menu: **Analog** (default), **Classic**, **Linear**.
+- In Linear mode, static Stereo bands are combined into one symmetric FIR
+  filter (frequency sampling of the analog-matched magnitude, Blackman
+  window; 8192 taps up to 50 kHz, 16384 up to 100 kHz, 32768 above), run
+  with uniformly partitioned FFT convolution (256-sample partitions).
+  Dynamic bands and L/R/M/S bands stay IIR, before the FIR, so they still
+  react instantly. The dry path is delayed to match.
+- The kernel is redesigned on the message thread (25 Hz timer) and swapped in
+  on the audio thread with a one-partition crossfade. No allocation or
+  locking on the audio thread.
+- Latency N/2 + 256: 4352 samples (90.7 ms) at 48 kHz, 8448 at 96 kHz, added
+  to look-ahead when both are on. Reported to the host while on.
+- 368 parameters (8 global + 24 x 15).
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **68 tests, 0 failures** (5 new: kernel length, symmetric kernel matching the IIR curve within 0.001 dB from 150 Hz to 18 kHz, pure delay when flat, sine gain and phase, click-free kernel switch) |
+| Plugin tests (Linux; Windows CI) | **123 checks, 0 failures** (16 new). Linear: reports 4352 samples at 48 kHz (8448 at 96 kHz); a +6 dB bell gives 6.00 dB, same as normal mode; phase error against a pure delay 0.0000 rad; band changes reach the sound; dynamic bands still work; bypass delayed to match; latencies add with look-ahead; not in presets; restored with the project; back to 0 latency when off. No allocations on the audio thread in linear mode. CPU, busy instance: 3.92 % of one core linear vs 1.63 % normal. |
+| ThreadSanitizer (plugin tests, Linux) | **0 warnings**, including the concurrency test that switches linear on mid-run and redesigns the kernel every round (the 2 CPU timing checks fail under TSan's slowdown, as expected) |
+| GUI tests (Linux, Xvfb) | **All pass** (curve menu sets Linear, Classic and Analog correctly) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** How Cubase handles the latency change when Linear is switched during playback is untested. |
+
 # Version 1.4: Auto Gain and look-ahead (2026-11-20)
 
 ## What changed

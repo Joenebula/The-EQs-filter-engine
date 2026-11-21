@@ -12,9 +12,10 @@ namespace
     bool isSoundParameter (const juce::String& id)
     {
         // Bypass, the filter design method, Auto Gain (a listening aid) and
-        // look-ahead (it changes the plugin's latency) are not part of a preset.
+        // look-ahead and linear phase (they change the plugin's latency) are not
+        // part of a preset.
         return id != peq::params::bypass && id != peq::params::analogMatch && id != peq::params::autoGain
-            && id != peq::params::lookahead;
+            && id != peq::params::lookahead && id != peq::params::linearPhase;
     }
 
     //==========================================================================

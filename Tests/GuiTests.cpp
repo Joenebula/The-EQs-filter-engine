@@ -83,6 +83,31 @@ int main (int argc, char** argv)
             check (autoButton->getTooltip().contains ("Correction for the current curve"), "Auto button tooltip shows the correction");
             autoButton->setToggleState (false, juce::sendNotificationSync);
         }
+
+        // 1.5: the curve button (Analog / Classic / Linear).
+        auto findCurve = [&]() -> juce::TextButton*
+        {
+            for (auto* c : editor->getChildren())
+                if (auto* tb = dynamic_cast<juce::TextButton*> (c))
+                    if (tb->getButtonText() == "Analog" || tb->getButtonText() == "Classic" || tb->getButtonText() == "Linear")
+                        return tb;
+            return nullptr;
+        };
+        auto* curve = findCurve();
+        check (curve != nullptr && curve->getButtonText() == "Analog", "curve button shows Analog for a new instance");
+        auto paramOn = [&] (const char* id) { return proc->getState().getRawParameterValue (id)->load() >= 0.5f; };
+        editor->setCurveMode (2);
+        check (curve != nullptr && curve->getButtonText() == "Linear" && paramOn (peq::params::linearPhase)
+                   && paramOn (peq::params::analogMatch),
+               "curve menu: Linear switches linear phase on (analog shape)");
+        editor->setCurveMode (0);
+        check (curve != nullptr && curve->getButtonText() == "Classic" && ! paramOn (peq::params::linearPhase)
+                   && ! paramOn (peq::params::analogMatch),
+               "curve menu: Classic switches both off");
+        editor->setCurveMode (1);
+        check (curve != nullptr && curve->getButtonText() == "Analog" && ! paramOn (peq::params::linearPhase)
+                   && paramOn (peq::params::analogMatch),
+               "curve menu: Analog is analog-matched, minimum phase");
     }
 
     // Click at 1 kHz / +6 dB -> a bell band there.

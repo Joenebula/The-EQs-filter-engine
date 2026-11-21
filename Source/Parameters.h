@@ -38,6 +38,9 @@ namespace peq::params
         host) only while on. Added in 1.4, default off, not automatable. */
     inline constexpr const char* lookahead   = "lookahead";
     inline constexpr double lookaheadMs      = 5.0;
+    /** Linear-phase mode (see DSP/LinearPhase.h). Adds latency, so not
+        automatable. Added in 1.5, default off. */
+    inline constexpr const char* linearPhase = "linear_phase";
 
     inline constexpr int numBands = FilterEngine::numBands;
 
