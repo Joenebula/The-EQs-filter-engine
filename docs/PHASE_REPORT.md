@@ -1,3 +1,29 @@
+# Version 1.9: resonance finder (2026-11-21)
+
+## What changed
+
+- **Analyser > Find resonances**: a ~2 s average of the shown spectrum (post,
+  or pre if only pre is shown) is searched four times a second for narrow
+  peaks standing at least 6 dB above their 1-octave surroundings (40 Hz to
+  16 kHz, 1/48-octave grid; peaks within 1/6 octave merged; up to 6 shown,
+  strongest first; rings a cutting band already covers are skipped). Each gets
+  an amber marker; hovering shows frequency and prominence; clicking adds a
+  bell at that frequency, gain -0.75 x prominence (3 to 12 dB), Q from the
+  half-prominence width (2 to 12), as one undo step.
+- New framework-free `peq::findResonances` (DSP/Resonances.h/.cpp). Editor
+  only: no audio-thread changes. Saved with the analyser settings.
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **76 tests, 0 failures** (4 new: a smooth spectrum has none; a +12 dB ring at 2.5 kHz is found (at 2487 Hz) and a broad +8 dB hill ignored; strongest first, close peaks merged, count and threshold respected; silence finds nothing) |
+| Plugin tests (Linux; Windows CI) | **140 checks, 0 failures** (unchanged; no audio-thread changes in this version) |
+| ThreadSanitizer | Not re-run: no audio-thread code changed since 1.8 (0 warnings there) |
+| GUI tests (Linux, Xvfb) | **All pass** (5 new: a 3.15 kHz tone in noise is marked, the marker can be clicked, clicking adds a narrow cut there and selects it, one undo removes it, markers go when switched off) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** |
+
 # Version 1.8: side-chain in the analyser (2026-11-21)
 
 ## What changed

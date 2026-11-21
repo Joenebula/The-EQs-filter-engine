@@ -358,7 +358,118 @@ bool EQGraph::updateAnalyser (double elapsedSeconds)
         ++sidechainFrames;
         fresh = true;
     }
+    if (analyser.enabled() && analyser.findResonances && fresh)
+        updateResonances (analyser.showPost() ? postAnalyser : preAnalyser, elapsedSeconds);
+    else if (! analyser.findResonances && ! resonances.empty())
+    {
+        resonances.clear();
+        resonanceLevels.clear();
+        longTermPower.clear();
+    }
     return fresh;
+}
+
+void EQGraph::updateResonances (const SpectrumAnalyser& source, double elapsedSeconds)
+{
+    const auto& db = source.levelsDb();
+    if (longTermPower.size() != db.size())
+        longTermPower.assign (db.size(), 0.0);
+    const double a = juce::jlimit (0.02, 1.0, elapsedSeconds / 2.0);   // about a 2 s average
+    for (size_t b = 0; b < db.size(); ++b)
+        longTermPower[b] += a * (std::pow (10.0, db[b] / 10.0) - longTermPower[b]);
+
+    resonanceClock += elapsedSeconds;
+    if (resonanceClock < 0.25 && ! resonances.empty())
+        return;
+    resonanceClock = 0.0;
+
+    std::vector<double> avgDb (longTermPower.size());
+    for (size_t b = 0; b < avgDb.size(); ++b)
+        avgDb[b] = 10.0 * std::log10 (longTermPower[b] + 1e-30);
+    const double binWidth = source.sampleRate() / (double) source.fftSize();
+    auto found = peq::findResonances (avgDb, binWidth, 6.0, 8);
+
+    // Skip rings a band is already cutting.
+    resonances.clear();
+    resonanceLevels.clear();
+    for (const auto& r : found)
+    {
+        bool handled = false;
+        for (const auto& b : bands)
+            if (b.isUsed() && b.isEnabled() && BandParamRefs::get (b.gain) < 0.0f
+                && std::abs (std::log2 ((double) BandParamRefs::get (b.freq) / r.frequencyHz)) < 1.0 / 12.0)
+                handled = true;
+        if (handled)
+            continue;
+        resonances.push_back (r);
+        resonanceLevels.push_back (SpectrumAnalyser::levelAt (avgDb, r.frequencyHz, binWidth, analyser.smoothingOctaves));   // as drawn
+        if (resonances.size() >= 6)
+            break;
+    }
+}
+
+double EQGraph::spectrumYForLevel (double dbfs, double hz) const
+{
+    const auto plot = plotArea();
+    const double level = dbfs + analyser.tiltDbPerOctave * std::log2 (hz / 1000.0);
+    const double t = (0.0 - level) / (0.0 - analyserFloorDb);
+    return juce::jlimit ((double) plot.getY(), (double) plot.getBottom(), plot.getY() + t * plot.getHeight());
+}
+
+juce::Point<float> EQGraph::resonanceMarkerPosition (int index) const
+{
+    if (index < 0 || index >= (int) resonances.size())
+        return {};
+    const double hz = resonances[(size_t) index].frequencyHz;
+    const float y = (float) spectrumYForLevel (resonanceLevels[(size_t) index], hz) - 10.0f;
+    return { xForFreq (hz), juce::jmax (plotArea().getY() + 6.0f, y) };
+}
+
+int EQGraph::resonanceAt (juce::Point<float> position) const
+{
+    if (! analyser.enabled() || ! analyser.findResonances)
+        return -1;
+    for (int i = 0; i < (int) resonances.size(); ++i)
+        if (resonanceMarkerPosition (i).getDistanceFrom (position) <= 10.0f)
+            return i;
+    return -1;
+}
+
+int EQGraph::addBandAtResonance (int index)
+{
+    if (index < 0 || index >= (int) resonances.size())
+        return -1;
+    int band = -1;
+    for (int b = 0; b < FilterEngine::numBands && band < 0; ++b)
+        if (! bands[(size_t) b].isUsed())
+            band = b;
+    if (band < 0)
+        return -1;
+
+    const auto r = resonances[(size_t) index];
+    processor.beginUndoStep ("Cut resonance");
+    auto& p = bands[(size_t) band];
+    BandParamRefs::setWithGesture (p.type, (float) FilterType::Bell);
+    BandParamRefs::setWithGesture (p.freq, (float) r.frequencyHz);
+    BandParamRefs::setWithGesture (p.gain, (float) -juce::jlimit (3.0, 12.0, r.prominenceDb * 0.75));
+    BandParamRefs::setWithGesture (p.q, (float) juce::jlimit (2.0, 12.0, r.q));
+    BandParamRefs::setWithGesture (p.slope, 1.0f);
+    BandParamRefs::setWithGesture (p.mode, (float) ChannelMode::Stereo);
+    for (auto* q : { p.dyn, p.thr, p.range, p.att, p.rel, p.ratio, p.sc })
+    {
+        q->beginChangeGesture();
+        q->setValueNotifyingHost (q->getDefaultValue());
+        q->endChangeGesture();
+    }
+    BandParamRefs::setWithGesture (p.on, 1.0f);
+    BandParamRefs::setWithGesture (p.used, 1.0f);
+    processor.flushUndo();
+
+    resonances.erase (resonances.begin() + index);
+    resonanceLevels.erase (resonanceLevels.begin() + index);
+    refreshFromParameters (true);
+    setSelectedBand (band);
+    return band;
 }
 
 void EQGraph::timerCallback()
@@ -708,6 +819,28 @@ void EQGraph::drawSpectrum (juce::Graphics& g, juce::Rectangle<float> plot) cons
         g.drawText ("SIDE-CHAIN", plot.reduced (12.0f, 6.0f).withTrimmedRight (40.0f), juce::Justification::topRight);
     }
 
+    if (analyser.findResonances)
+    {
+        for (int i = 0; i < (int) resonances.size(); ++i)
+        {
+            const auto pt = resonanceMarkerPosition (i);
+            juce::Path tri;
+            tri.addTriangle (pt.x - 6.0f, pt.y - 5.0f, pt.x + 6.0f, pt.y - 5.0f, pt.x, pt.y + 5.0f);
+            const bool hot = cursor.x >= 0.0f && pt.getDistanceFrom (cursor) <= 10.0f;
+            g.setColour (theme::warning.withAlpha (hot ? 1.0f : 0.85f));
+            g.fillPath (tri);
+            if (hot)
+            {
+                const auto& r = resonances[(size_t) i];
+                const auto hz = r.frequencyHz >= 1000.0 ? juce::String (r.frequencyHz / 1000.0, 2) + " kHz"
+                                                        : juce::String (juce::roundToInt (r.frequencyHz)) + " Hz";
+                g.setFont (theme::font (12.0f, true));
+                g.drawText ("Ring at " + hz + " (+" + juce::String (r.prominenceDb, 1) + " dB): click to cut",
+                            juce::Rectangle<float> (pt.x - 140.0f, pt.y - 26.0f, 280.0f, 16.0f), juce::Justification::centred);
+            }
+        }
+    }
+
     // dBFS scale for the analyser, small, on the left edge.
     g.setFont (theme::font (10.0f));
     g.setColour (theme::gridText.withAlpha (0.8f));
@@ -1034,6 +1167,12 @@ void EQGraph::mouseDown (const juce::MouseEvent& e)
     {
         setSelectedBand (band);
         beginDrag (band, e.position, e.mods.isAltDown());
+        return;
+    }
+
+    if (const int ring = resonanceAt (e.position); ring >= 0)
+    {
+        addBandAtResonance (ring);
         return;
     }
 
