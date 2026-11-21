@@ -5,7 +5,7 @@ Cubase. It has a large interactive EQ graph, a real-time spectrum analyser,
 dynamic EQ on any bell or shelf (with an external sidechain), left/right/mid/side processing per band,
 presets, A/B compare and full automation.
 
-Version 2.4 · Vendor "Home Studio" · Personal use.
+Version 2.5 · Vendor "Home Studio" · Personal use.
 
 ---
 
@@ -52,7 +52,7 @@ From left to right along the top:
 
 | Control | What it does |
 |---|---|
-| **Undo / Redo** | Steps back or forward through your changes (Ctrl+Z, Ctrl+Y). |
+| **Undo / Redo** | Steps back or forward through your changes (Ctrl+Z, Ctrl+Y). **Right-click** either one for a list of recent steps and jump straight back to any of them (see "Undo history" below). |
 | **< Preset name >** | Click the name for the preset menu; the arrows step through presets. A **\*** after the name means you've changed something since loading it. |
 | **A** / **B** | Switches between two complete settings to compare them. |
 | **+/- 18 dB** | Vertical scale of the graph (6, 12, 18 or 30 dB). Display only. |
@@ -67,6 +67,15 @@ From left to right along the top:
 
 The window can be resized from its bottom-right corner. Its size is saved with
 the project.
+
+### Undo history
+
+Right-click **Undo** to see your recent steps, newest first ("Move band",
+"Cut resonance", "Learn threshold" and so on; plain knob turns show as
+"Edit"). Click one to go back to just before it: every step above it in the
+list is undone too. Right-click **Redo** for the steps you've undone, and
+click one to redo up to and including it. The list shows the last 25. Undo
+history lasts while the project is open; it isn't saved with the project.
 
 ### Delta listen (Δ)
 
@@ -514,7 +523,7 @@ is in the preset menu. Both settings are saved with the project.
 
 | Keys | Action |
 |---|---|
-| Ctrl+Z | Undo |
+| Ctrl+Z | Undo (right-click the Undo button for the history) |
 | Ctrl+Y or Ctrl+Shift+Z | Redo |
 | Delete / Backspace | Delete the selected band |
 | Ctrl+C | Copy the selected band |

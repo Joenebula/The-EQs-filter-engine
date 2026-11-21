@@ -842,6 +842,39 @@ int main (int argc, char** argv)
         check (! panel.getLearnButton().isEnabled(), "learn threshold: off when the band isn't dynamic");
     }
 
+    // 2.5: undo history.
+    {
+        using peq::params::BandField;
+        proc->flushUndo();
+        proc->getUndoManager().clearUndoHistory();
+        auto* gain = proc->getState().getParameter (peq::params::bandID (0, BandField::gain));
+        const float startGain = value (*proc, 0, BandField::gain);
+        const char* names[] = { "Step one", "Step two", "Step three" };
+        for (int i = 0; i < 3; ++i)
+        {
+            proc->beginUndoStep (names[i]);
+            gain->beginChangeGesture();
+            gain->setValueNotifyingHost (gain->convertTo0to1 ((float) (i + 1)));
+            gain->endChangeGesture();
+            proc->flushUndo();
+        }
+        auto undoList = editor->getUndoHistory();
+        std::printf ("       undo history: %s\n", undoList.joinIntoString (" | ").toRawUTF8());
+        check (undoList.size() >= 3 && undoList[0] == "Step three" && undoList[1] == "Step two" && undoList[2] == "Step one",
+               "undo history: lists steps, most recent first");
+        editor->undoSteps (2);
+        check (near (value (*proc, 0, BandField::gain), 1.0, 0.01), "undo history: picking the 2nd step undoes two steps");
+        auto redoList = editor->getRedoHistory();
+        check (redoList.size() == 2 && redoList[0] == "Step two" && redoList[1] == "Step three",
+               "undo history: undone steps show on the redo side, next first");
+        editor->redoSteps (2);
+        check (near (value (*proc, 0, BandField::gain), 3.0, 0.01) && editor->getRedoHistory().isEmpty(),
+               "undo history: redo up to a step");
+        editor->undoSteps (99);
+        check (near (value (*proc, 0, BandField::gain), startGain, 0.01), "undo history: asking for more steps than exist stops at the start");
+        editor->redoSteps (99);
+    }
+
     base.reset();
     std::printf ("\n%s (%d failures)\n", failures == 0 ? "ALL GUI CHECKS PASSED" : "GUI CHECKS FAILED", failures);
     return failures == 0 ? 0 : 1;

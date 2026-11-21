@@ -27,6 +27,13 @@ public:
     peq::gui::BandPanel& getBandPanel() noexcept { return bandPanel; }
     peq::gui::MatchPanel& getMatchPanel() noexcept { return matchPanel; }
     juce::TextButton& getDeltaButton() noexcept { return deltaButton; }
+    /** Undo history (2.5): step names, most recent first (at most 25).
+        Right-click Undo or Redo to pick one; undoSteps (n) undoes n steps. */
+    juce::StringArray getUndoHistory();
+    juce::StringArray getRedoHistory();
+    void undoSteps (int count);
+    void redoSteps (int count);
+
     /** Runs one editor timer tick now (tests). */
     void timerCallbackForTests() { timerCallback(); }
     peq::gui::OutputMeter& getOutputMeter() noexcept { return outputMeter; }
@@ -40,6 +47,19 @@ private:
     void timerCallback() override;
     void undo();
     void redo();
+    void showHistoryMenu (bool undoSide);
+    struct HistoryClick final : juce::MouseListener
+    {
+        HistoryClick (ParaEQAudioProcessorEditor& e, bool u) : editor (e), undoSide (u) {}
+        void mouseDown (const juce::MouseEvent& ev) override
+        {
+            if (ev.mods.isPopupMenu())
+                editor.showHistoryMenu (undoSide);
+        }
+        ParaEQAudioProcessorEditor& editor;
+        bool undoSide;
+    };
+    HistoryClick undoHistoryClick { *this, true }, redoHistoryClick { *this, false };
     void showAnalyserMenu();
     void loadAnalyserSettings();
     void saveAnalyserSettings (const peq::gui::AnalyserSettings&);

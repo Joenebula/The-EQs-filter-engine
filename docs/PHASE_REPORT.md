@@ -1,3 +1,23 @@
+# Version 2.5: undo history (2026-11-21)
+
+## What changed
+
+- **Right-click Undo** lists the last 25 undo steps, newest first (unnamed
+  steps show as "Edit"); picking item n undoes n steps. **Right-click Redo**
+  does the same for redo. Built on JUCE's UndoManager descriptions; editor
+  only, no audio-thread changes.
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **83 tests, 0 failures** (unchanged) |
+| Plugin tests (Linux; Windows CI) | **152 checks, 0 failures** (unchanged) |
+| ThreadSanitizer | Not re-run: no audio-thread code changed since 2.4 (0 warnings there) |
+| GUI tests (Linux, Xvfb) | **All pass** (5 new: three named steps list newest first; picking the 2nd undoes two; undone steps show on the redo side, next first; redo up to a step; asking for too many stops at the start). The popup menu itself isn't screenshotted (headless) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** |
+
 # Version 2.4: learn threshold (2026-11-21)
 
 ## What changed
