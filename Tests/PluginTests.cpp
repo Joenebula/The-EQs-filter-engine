@@ -615,6 +615,58 @@ int main()
         check (with < without - 4.0, "look-ahead: dynamic band catches the start of a burst (4+ dB lower)");
     }
 
+    // Delta listen (1.7): hear only what the EQ changes.
+    {
+        auto p = makeProcessor (48000.0, 512);
+        check (! p->getDeltaListen(), "delta listen: off for a new instance");
+        p->setDeltaListen (true);
+        const double flat = sineGainDb (*p, 48000.0, 1000.0, 512);
+        std::printf ("       delta, flat EQ: %.1f dB\n", flat);
+        check (flat < -100.0, "delta listen: silent when the EQ is flat");
+
+        setupBell (*p, 6.0f);
+        const double boost = sineGainDb (*p, 48000.0, 1000.0, 512);
+        const double away = sineGainDb (*p, 48000.0, 60.0, 512);
+        setupBell (*p, -6.0f);
+        const double cut = sineGainDb (*p, 48000.0, 1000.0, 512);
+        const double wantBoost = 20.0 * std::log10 (std::pow (10.0, 6.0 / 20.0) - 1.0);
+        const double wantCut = 20.0 * std::log10 (1.0 - std::pow (10.0, -6.0 / 20.0));
+        std::printf ("       delta at 1 kHz: +6 dB bell %.2f dB (expect %.2f), -6 dB bell %.2f dB (expect %.2f); 60 Hz %.1f dB\n",
+                     boost, wantBoost, cut, wantCut, away);
+        check (near (boost, wantBoost, 0.1) && near (cut, wantCut, 0.1), "delta listen: plays exactly what a boost adds or a cut removes");
+        {
+            peq::BandParameters bp;
+            bp.frequencyHz = 1000.0; bp.gainDb = 6.0; bp.q = 1.0; bp.analogMatched = true;
+            peq::CascadeCoefficients c;
+            peq::FilterDesign::design (bp, 48000.0, c);
+            const double wantAway = 20.0 * std::log10 (std::abs (c.response (60.0, 48000.0) - 1.0));
+            std::printf ("       delta at 60 Hz: %.2f dB (filter math says %.2f)\n", away, wantAway);
+            check (near (away, wantAway, 0.5) && away < -20.0, "delta listen: small away from the band, exactly as the filter says");
+        }
+
+        setValue (param (*p, peq::params::outputGain), -10.0f);
+        check (near (sineGainDb (*p, 48000.0, 1000.0, 512), wantCut, 0.1), "delta listen: output gain does not change it");
+        setValue (param (*p, peq::params::outputGain), 0.0f);
+
+        setValue (param (*p, peq::params::linearPhase), 1.0f);
+        p->prepareToPlay (48000.0, 512);
+        const double linearCut = sineGainDb (*p, 48000.0, 1000.0, 512, 1.0);
+        std::printf ("       delta in linear phase, -6 dB bell: %.2f dB\n", linearCut);
+        check (near (linearCut, wantCut, 0.2), "delta listen: works in linear phase too (dry delayed to match)");
+        setValue (param (*p, peq::params::linearPhase), 0.0f);
+        p->prepareToPlay (48000.0, 512);
+
+        p->setDeltaListen (false);
+        check (near (sineGainDb (*p, 48000.0, 1000.0, 512), -6.0, 0.1), "delta listen off: normal sound again");
+
+        juce::MemoryBlock state;
+        p->setDeltaListen (true);
+        p->getStateInformation (state);
+        auto q = makeProcessor (48000.0, 512);
+        q->setStateInformation (state.getData(), (int) state.getSize());
+        check (! q->getDeltaListen(), "delta listen: not saved with the project");
+    }
+
     // EQ Match (1.6): learn this track against the sidechain, add bands.
     {
         auto p = makeProcessor (48000.0, 512);

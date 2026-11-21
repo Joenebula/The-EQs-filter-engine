@@ -5,7 +5,7 @@ Cubase. It has a large interactive EQ graph, a real-time spectrum analyser,
 dynamic EQ on any bell or shelf (with an external sidechain), left/right/mid/side processing per band,
 presets, A/B compare and full automation.
 
-Version 1.6 · Vendor "Home Studio" · Personal use.
+Version 1.7 · Vendor "Home Studio" · Personal use.
 
 ---
 
@@ -61,11 +61,26 @@ From left to right along the top:
 | Scale knob | **Gain Scale**: makes every band's boost or cut bigger or smaller together, 0 to 200 %. 100 % = as set, 0 % = flat. Double-click for 100 %. Saved in presets. |
 | **IN / OUT** | Input and output gain, -24 to +24 dB. Double-click to reset. |
 | **Auto** | **Auto Gain**: keeps the overall level the same as you EQ, so you hear the tone change rather than "louder = better". Hover over it to see the correction it's applying. Off by default. |
+| **Δ** (Delta) | **Delta listen**: hear only what the EQ changes. See below. Not saved; switches off when the window closes. |
 | Meter | Output peak level. Red light = went over 0 dBFS; click to reset. |
 | **Bypass** | Turns the whole EQ off (click-free). |
 
 The window can be resized from its bottom-right corner. Its size is saved with
 the project.
+
+### Delta listen (Δ)
+
+With **Δ** on, you hear only the *difference* the EQ makes: what a cut takes
+away, or what a boost adds, and nothing else. It's the quickest way to check
+that a cut is removing the boxiness or ring you're after and not the body of
+the sound, or that a boost isn't mostly adding hiss. "DELTA" shows at the top
+left of the graph while it's on.
+
+- With the EQ flat, you hear silence.
+- The output gain (OUT and Auto Gain) is not applied, so you hear the change at
+  its real level. It works in every curve type, Linear included.
+- It's a listening aid, like Solo: it isn't saved, and it switches off when
+  you close the window. Don't leave it on while bouncing.
 
 ### Auto Gain
 

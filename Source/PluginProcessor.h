@@ -116,6 +116,12 @@ public:
         a band-pass at the band's frequency. -1 = no solo. Not automatable and
         not saved; it is a listening aid set from the editor. */
     void setSoloBand (int bandIndex) noexcept { soloBand.store (bandIndex); }
+
+    /** Delta listen (1.7): play only what the EQ changes (its output minus
+        its input), to hear exactly what a cut removes or a boost adds. A
+        listening aid set from the editor: not automatable, not saved. */
+    void setDeltaListen (bool on) noexcept { deltaListen.store (on); }
+    bool getDeltaListen() const noexcept { return deltaListen.load(); }
     int getSoloBand() const noexcept { return soloBand.load(); }
 
     /** Spectrum analyser feeds: mono (L+R)/2 audio before the EQ (after input
@@ -215,6 +221,9 @@ private:
 
     juce::SmoothedValue<double, juce::ValueSmoothingTypes::Multiplicative> inGain { 1.0 }, outGain { 1.0 };
     juce::SmoothedValue<double, juce::ValueSmoothingTypes::Linear> wet { 1.0 };
+    juce::SmoothedValue<double, juce::ValueSmoothingTypes::Linear> deltaMix { 0.0 };
+    std::atomic<bool> deltaListen { false };
+    std::vector<double> inGainTrace;           // per-sample input gain (for delta listen)
 
     juce::AudioBuffer<double> doubleBuffer;   // preallocated for the float path
     juce::AudioBuffer<double> dryBuffer;      // preallocated for click-free bypass
