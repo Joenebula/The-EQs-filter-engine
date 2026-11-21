@@ -869,7 +869,8 @@ void EQGraph::drawReadout (juce::Graphics& g, int band) const
         line2 << "   " << juce::String (r.slopeDbPerOct()) << " dB/oct";
     if (r.dynamicsActive())
         line1 << "  Dyn " << formatGain ((double) BandParamRefs::get (r.range))
-              << " @ " << juce::String ((double) BandParamRefs::get (r.thr), 1) << " dB";
+              << " @ " << juce::String ((double) BandParamRefs::get (r.thr), 1) << " dB"
+              << (BandParamRefs::get (r.sc) >= 0.5f ? "  (SC)" : "");
 
     const auto f1 = theme::font (12.0f, true), f2 = theme::font (12.0f);
     const float w = juce::jmax (juce::GlyphArrangement::getStringWidth (f1, line1),

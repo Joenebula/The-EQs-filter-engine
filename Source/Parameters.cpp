@@ -11,7 +11,7 @@ using namespace juce;
 
 String bandID (int bandIndex, BandField field)
 {
-    static const char* const suffix[] = { "on", "type", "freq", "gain", "q", "slope", "mode", "used", "dyn", "thr", "range", "att", "rel" };
+    static const char* const suffix[] = { "on", "type", "freq", "gain", "q", "slope", "mode", "used", "dyn", "thr", "range", "att", "rel", "ratio", "sc" };
     return "b" + String (bandIndex + 1).paddedLeft ('0', 2) + "_" + suffix[(int) field];
 }
 
@@ -78,6 +78,9 @@ AudioProcessorValueTreeState::ParameterLayout createLayout()
 
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { bypass, version }, "Bypass", false));
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { analogMatch, version }, "Analog Match", true));
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { autoGain, version }, "Auto Gain", false));
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { lookahead, version }, "Look-ahead", false,
+                                                      AudioParameterBoolAttributes().withAutomatable (false)));
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { gainScale, version }, "Gain Scale",
                                                        NormalisableRange<float> (0.0f, 200.0f, 0.1f), 100.0f,
                                                        AudioParameterFloatAttributes()
@@ -100,6 +103,10 @@ AudioProcessorValueTreeState::ParameterLayout createLayout()
                                     .withValueFromStringFunction (frequencyValue);
     const auto qAttributes = AudioParameterFloatAttributes()
                                  .withStringFromValueFunction ([] (float v, int) { return String (v, v < 1.0f ? 3 : 2); });
+
+    const auto ratioAttributes = AudioParameterFloatAttributes()
+                                     .withStringFromValueFunction ([] (float v, int) { return String (v, v < 10.0f ? 1 : 0) + ":1"; })
+                                     .withValueFromStringFunction ([] (const String& t) { return t.upToFirstOccurrenceOf (":", false, false).getFloatValue(); });
 
     const auto msAttributes = AudioParameterFloatAttributes()
                                   .withLabel ("ms")
@@ -162,6 +169,13 @@ AudioProcessorValueTreeState::ParameterLayout createLayout()
                                                                 n + "Release",
                                                                 logRange ((float) dynamics::minReleaseMs, (float) dynamics::maxReleaseMs),
                                                                 150.0f, msAttributes));
+        // Added in 1.3: ratio (was fixed at 2:1) and external sidechain.
+        group->addChild (std::make_unique<AudioParameterFloat> (ParameterID { bandID (b, BandField::ratio), version },
+                                                                n + "Ratio",
+                                                                logRange ((float) dynamics::minRatio, (float) dynamics::maxRatio),
+                                                                (float) dynamics::defaultRatio, ratioAttributes));
+        group->addChild (std::make_unique<AudioParameterBool> (ParameterID { bandID (b, BandField::sc), version },
+                                                               n + "Sidechain", false));
         layout.add (std::move (group));
     }
 

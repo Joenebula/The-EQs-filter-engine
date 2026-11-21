@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <vector>
 
 using namespace peq;
@@ -278,4 +279,195 @@ TEST_CASE ("Dynamics: engine routes detection per channel mode (Side band ignore
     }
     CHECK (e.dynamicOffsetDb (0) > -0.1);    // side band: nothing to hear
     CHECK (e.dynamicOffsetDb (1) < -9.5);    // mid band: loud
+}
+
+TEST_CASE ("Dynamics: ratio sets the slope (1:1 none, 2:1 default, 4:1, 20:1)")
+{
+    DynamicSettings d;
+    d.thresholdDb = -30.0;
+    d.rangeDb = -30.0;
+    CHECK_NEAR (d.ratio, 2.0, 1e-12);                                      // default = old fixed 2:1
+    CHECK_NEAR (dynamics::gainOffset (-10.0, d), -10.0, 1e-9);             // 20 dB over at 2:1 -> 10 dB
+    d.ratio = 4.0;
+    CHECK_NEAR (dynamics::gainOffset (-10.0, d), -15.0, 1e-9);             // 20 dB over at 4:1 -> 15 dB
+    d.ratio = 20.0;
+    CHECK_NEAR (dynamics::gainOffset (-10.0, d), -19.0, 1e-9);
+    d.ratio = 1.0;
+    CHECK_NEAR (dynamics::gainOffset (0.0, d), 0.0, 1e-12);                // 1:1 does nothing
+    d.ratio = 4.0; d.rangeDb = 30.0;
+    CHECK_NEAR (dynamics::gainOffset (-10.0, d), 15.0, 1e-9);              // upward uses it too
+
+    d.ratio = 0.2;
+    CHECK_NEAR (dynamics::sanitise (d).ratio, dynamics::minRatio, 1e-12);
+    d.ratio = 500.0;
+    CHECK_NEAR (dynamics::sanitise (d).ratio, dynamics::maxRatio, 1e-12);
+    d.ratio = std::nan ("");
+    CHECK_NEAR (dynamics::sanitise (d).ratio, dynamics::defaultRatio, 1e-12);
+
+    // Through a real band: a -6 dBFS tone, threshold -30, 4:1 -> 18 dB cut.
+    DynamicSettings live;
+    live.enabled = true; live.thresholdDb = -30.0; live.rangeDb = -30.0; live.ratio = 4.0;
+    live.attackMs = 5.0; live.releaseMs = 100.0;
+    const size_t n = (size_t) fs;
+    auto b = makeBand (FilterType::Bell, 2000.0, 0.0, 1.0, live);
+    auto x = tone (2000.0, n, 0.5);
+    runMono (b, x, 0, n);
+    CHECK_NEAR (b.currentDynamicOffsetDb(), -18.0, 0.3);
+    CHECK_NEAR (toDb (amplitudeAt (x, n - 9600, 9600, 2000.0)), toDb (0.5) - 18.0, 0.5);
+}
+
+TEST_CASE ("Dynamics: external sidechain drives the band (ducking), own signal ignored")
+{
+    DynamicSettings d;
+    d.enabled = true; d.thresholdDb = -30.0; d.rangeDb = -10.0; d.attackMs = 5.0; d.releaseMs = 50.0;
+    d.externalSidechain = true;
+
+    const size_t n = (size_t) fs;
+    const size_t half = n / 2;
+
+    // Main: a steady loud 100 Hz tone (would trigger the band on its own).
+    // Sidechain: a loud 100 Hz "kick" for the first half second, then silence.
+    auto b = makeBand (FilterType::Bell, 100.0, 0.0, 1.0, d);
+    auto x = tone (100.0, n, 0.5);
+    auto sc = tone (100.0, n, 0.5);
+    std::fill (sc.begin() + (long) half, sc.end(), 0.0);
+
+    std::vector<double> offsets;
+    for (size_t pos = 0; pos < n; pos += 256)
+    {
+        const int len = (int) std::min<size_t> (256, n - pos);
+        double* ch[1] = { x.data() + pos };
+        const double* s[1] = { sc.data() + pos };
+        b.setSidechain (s, 1);
+        b.process (ch, 1, len);
+        b.setSidechain (nullptr, 0);
+        offsets.push_back (b.currentDynamicOffsetDb());
+    }
+    const size_t blocksPerHalf = half / 256;
+    CHECK (offsets[blocksPerHalf - 1] < -9.5);            // sidechain loud: ducked by the range
+    CHECK (offsets.back() > -0.1);                        // sidechain silent: back to set gain,
+                                                          // although the main signal stays loud
+    CHECK_NEAR (toDb (amplitudeAt (x, half - 9600, 9600, 100.0)), toDb (0.5) - 10.0, 0.5);
+    CHECK_NEAR (toDb (amplitudeAt (x, n - 9600, 9600, 100.0)), toDb (0.5), 0.1);
+}
+
+TEST_CASE ("Dynamics: external sidechain with nothing connected leaves the band static")
+{
+    DynamicSettings d;
+    d.enabled = true; d.thresholdDb = -30.0; d.rangeDb = -10.0; d.externalSidechain = true;
+
+    FilterEngine e;
+    BandParameters p;
+    p.type = FilterType::Bell; p.frequencyHz = 1000.0; p.q = 1.0;
+    e.setBand (0, p, ChannelMode::Stereo);
+    e.setBandDynamics (0, d);
+    e.prepare (fs);
+
+    const size_t n = (size_t) fs / 2;
+    auto l = tone (1000.0, n, 0.5), r = l;
+    for (size_t pos = 0; pos < n; pos += 512)
+    {
+        double* ch[2] = { l.data() + pos, r.data() + pos };
+        e.process (ch, 2, (int) std::min<size_t> (512, n - pos));   // no sidechain passed
+    }
+    CHECK_NEAR (e.dynamicOffsetDb (0), 0.0, 1e-9);
+
+    // Same band through the engine with a stereo sidechain that is loud only
+    // on the right: linked detection still ducks.
+    auto l2 = tone (1000.0, n, 0.5), r2 = l2;
+    std::vector<double> scL (n, 0.0);
+    auto scR = tone (1000.0, n, 0.5);
+    for (size_t pos = 0; pos < n; pos += 512)
+    {
+        const int len = (int) std::min<size_t> (512, n - pos);
+        double* ch[2] = { l2.data() + pos, r2.data() + pos };
+        const double* s[2] = { scL.data() + pos, scR.data() + pos };
+        e.process (ch, 2, len, s, 2);
+    }
+    CHECK (e.dynamicOffsetDb (0) < -9.5);
+}
+
+TEST_CASE ("Dynamics: switching the detector source mid-stream stays smooth and finite")
+{
+    DynamicSettings d;
+    d.enabled = true; d.thresholdDb = -40.0; d.rangeDb = -12.0; d.attackMs = 1.0; d.releaseMs = 20.0;
+
+    auto b = makeBand (FilterType::Bell, 500.0, 0.0, 1.0, d);
+    const size_t n = (size_t) fs;
+    auto x = tone (500.0, n, 0.3);
+    auto sc = tone (500.0, n, 0.01);   // quiet sidechain
+    double maxStep = 0.0, prev = 0.0;
+    for (size_t pos = 0; pos < n; pos += 128)
+    {
+        if (pos == n / 2)
+        {
+            d.externalSidechain = true;
+            b.setDynamics (d);
+        }
+        const int len = (int) std::min<size_t> (128, n - pos);
+        double* ch[1] = { x.data() + pos };
+        const double* s[1] = { sc.data() + pos };
+        b.setSidechain (s, 1);
+        b.process (ch, 1, len);
+        for (int i = 0; i < len; ++i)
+        {
+            CHECK (std::isfinite (x[pos + (size_t) i]));
+            if (pos + (size_t) i > 0)
+                maxStep = std::max (maxStep, std::abs (x[pos + (size_t) i] - prev));
+            prev = x[pos + (size_t) i];
+        }
+    }
+    // A 500 Hz sine at 0.3 moves at most 0.3 * 2 pi * 500 / 48000 = 0.0196 per sample.
+    CHECK (maxStep < 0.025);
+}
+
+TEST_CASE ("Dynamics: look-ahead input lets the band act before a burst arrives")
+{
+    // Silence, then a loud 2 kHz burst. The processed audio is the burst
+    // delayed by 5 ms; the detector hears the undelayed burst.
+    const int delay = 240;   // 5 ms at 48 kHz
+    const size_t n = 9600;
+    const size_t onset = 4800;
+    std::vector<double> raw (n, 0.0);
+    for (size_t i = onset; i < n; ++i)
+        raw[i] = 0.5 * std::sin (2.0 * pi * 2000.0 * (double) (i - onset) / fs);
+    std::vector<double> delayed (n, 0.0);
+    for (size_t i = (size_t) delay; i < n; ++i)
+        delayed[i] = raw[i - (size_t) delay];
+
+    DynamicSettings d;
+    d.enabled = true; d.thresholdDb = -30.0; d.rangeDb = -12.0; d.attackMs = 1.0; d.releaseMs = 100.0;
+    BandParameters p;
+    p.type = FilterType::Bell; p.frequencyHz = 2000.0; p.q = 1.0;
+
+    auto firstMsDb = [&] (bool useLookahead)
+    {
+        FilterEngine e;
+        e.setBand (0, p, ChannelMode::Stereo);
+        e.setBandDynamics (0, d);
+        e.prepare (fs);
+        auto l = delayed, r = delayed;
+        for (size_t pos = 0; pos < n; pos += 64)
+        {
+            const int len = (int) std::min<size_t> (64, n - pos);
+            double* ch[2] = { l.data() + pos, r.data() + pos };
+            FilterEngine::LookaheadInput la;
+            la.lr[0] = la.lr[1] = raw.data() + pos;
+            la.ms[0] = raw.data() + pos;
+            la.ms[1] = raw.data() + pos;   // unused for a stereo band
+            e.process (ch, 2, len, nullptr, 0, useLookahead ? &la : nullptr);
+        }
+        // Level of the first 2 ms of the burst as it leaves the band.
+        double peak = 0.0;
+        for (size_t i = onset + (size_t) delay; i < onset + (size_t) delay + 96; ++i)
+            peak = std::max (peak, std::abs (l[i]));
+        return toDb (peak);
+    };
+    const double without = firstMsDb (false);
+    const double with = firstMsDb (true);
+    std::printf ("    look-ahead burst onset: %.2f dB without, %.2f dB with\n", without, with);
+    // Without look-ahead the burst's start gets through almost untouched;
+    // with it the band is already turned down when the burst arrives.
+    CHECK (without > toDb (0.5) - 3.0);
+    CHECK (with < without - 4.0);   // measured: about 5.5 dB lower (-6.3 vs -11.8 dB)
 }

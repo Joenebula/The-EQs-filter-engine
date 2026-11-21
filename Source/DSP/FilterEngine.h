@@ -63,8 +63,26 @@ public:
         audio is stopped). */
     void snapToTargets() noexcept;
 
-    /** Processes in place. numChannels is clamped to maxChannels. */
-    void process (double* const* channels, int numChannels, int numSamples) noexcept;
+    /** Processes in place. numChannels is clamped to maxChannels.
+        sidechain (optional, numSidechainChannels of numSamples each) feeds
+        the detectors of bands set to listen to the external sidechain. */
+    void process (double* const* channels, int numChannels, int numSamples,
+                  const double* const* sidechain = nullptr, int numSidechainChannels = 0) noexcept;
+
+    /** Undelayed input for the dynamic detectors when the audio is delayed
+        for look-ahead: the same block in left/right and in mid/side (for
+        mono, only lr[0]). */
+    struct LookaheadInput
+    {
+        const double* lr[maxChannels] {};
+        const double* ms[maxChannels] {};
+    };
+
+    /** As process(), with look-ahead: bands that listen to their own signal
+        hear `lookahead` (ahead of the delayed `channels`) instead. */
+    void process (double* const* channels, int numChannels, int numSamples,
+                  const double* const* sidechain, int numSidechainChannels,
+                  const LookaheadInput* lookahead) noexcept;
 
     const EQBand& band (int index) const noexcept { return bands[(size_t) index]; }
 

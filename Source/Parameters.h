@@ -11,7 +11,10 @@
 
     Per band (n = 01..24): bNN_used, bNN_on, bNN_type, bNN_freq, bNN_gain,
     bNN_q, bNN_slope, bNN_mode; dynamic EQ (Phase 6): bNN_dyn, bNN_thr,
-    bNN_range, bNN_att, bNN_rel. "used" means the band exists (shown in the
+    bNN_range, bNN_att, bNN_rel; added in 1.3: bNN_ratio, bNN_sc (detector
+    listens to the sidechain input). Their defaults (2:1, own signal) are how
+    earlier versions behaved, so older projects and presets sound the same.
+    "used" means the band exists (shown in the
     graph); "on" is its enable/bypass switch. A band is heard only when both
     are set. Choice parameters store an index, so only append new
     choices at the end of each list.
@@ -27,10 +30,18 @@ namespace peq::params
     /** Scales every band's gain together, 0-200 % (100 % = as set). Added
         in 1.2; missing from older states and presets, so they get 100 %. */
     inline constexpr const char* gainScale   = "gain_scale";
+    /** Auto Gain: output correction that keeps the level steady while you
+        EQ (see DSP/AutoGain.h). Added in 1.4, default off. */
+    inline constexpr const char* autoGain    = "auto_gain";
+    /** Look-ahead for dynamic bands: delays the audio by lookaheadMs so the
+        detectors hear what is coming. Adds that latency (reported to the
+        host) only while on. Added in 1.4, default off, not automatable. */
+    inline constexpr const char* lookahead   = "lookahead";
+    inline constexpr double lookaheadMs      = 5.0;
 
     inline constexpr int numBands = FilterEngine::numBands;
 
-    enum class BandField { on, type, freq, gain, q, slope, mode, used, dyn, thr, range, att, rel };
+    enum class BandField { on, type, freq, gain, q, slope, mode, used, dyn, thr, range, att, rel, ratio, sc };
 
     /** e.g. bandID (0, BandField::freq) == "b01_freq". */
     juce::String bandID (int bandIndex, BandField field);

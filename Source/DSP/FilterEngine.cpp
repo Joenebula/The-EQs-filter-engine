@@ -107,11 +107,29 @@ void FilterEngine::snapToTargets() noexcept
     }
 }
 
-void FilterEngine::process (double* const* channels, int numChannels, int numSamples) noexcept
+void FilterEngine::process (double* const* channels, int numChannels, int numSamples,
+                            const double* const* sidechain, int numSidechainChannels) noexcept
+{
+    process (channels, numChannels, numSamples, sidechain, numSidechainChannels, nullptr);
+}
+
+void FilterEngine::process (double* const* channels, int numChannels, int numSamples,
+                            const double* const* sidechain, int numSidechainChannels,
+                            const LookaheadInput* lookahead) noexcept
 {
     numChannels = std::clamp (numChannels, 0, maxChannels);
     if (numChannels == 0 || numSamples <= 0)
         return;
+
+    // The sidechain is only valid during this call: hand it to the bands now
+    // and take it back at the end.
+    for (auto& b : bands)
+        b.setSidechain (sidechain, numSidechainChannels);
+    struct ClearSidechain
+    {
+        std::array<EQBand, numBands>& bands;
+        ~ClearSidechain() { for (auto& b : bands) { b.setSidechain (nullptr, 0); b.setOwnDetectorInput (nullptr); } }
+    } clearSidechain { bands };
 
     double* l = channels[0];
     double* r = numChannels > 1 ? channels[1] : nullptr;
@@ -131,6 +149,9 @@ void FilterEngine::process (double* const* channels, int numChannels, int numSam
             b.process (channels, numChannels, numSamples);
             continue;
         }
+
+        if (lookahead != nullptr)
+            b.setOwnDetectorInput (r == nullptr || ! usesMidSide (s.active) ? lookahead->lr : lookahead->ms);
 
         if (r == nullptr)
         {

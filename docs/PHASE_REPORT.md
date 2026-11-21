@@ -1,3 +1,75 @@
+# Version 1.4: Auto Gain and look-ahead (2026-11-20)
+
+## What changed
+
+- **Auto Gain** (global parameter `auto_gain`, off by default, **Auto**
+  button in the top bar): an output correction that undoes the EQ curve's
+  average level change. It is worked out from the static curve (pink-weighted
+  power average over 20 Hz to 20 kHz; L/R/M/S bands at about half strength),
+  not from the audio, so it never pumps. Clamped to +/-24 dB. Saved with the
+  project, not in presets. The button's tooltip shows the current correction.
+- **Look-ahead** for dynamic bands (global parameter `lookahead`, off by
+  default, not automatable; **LA** button in the band panel's dynamic
+  section). On: the main audio (and the bypass path) is delayed by 5 ms and
+  the dynamic detectors hear the undelayed input (in L/R or M/S as each band
+  needs). The 5 ms is reported to the host as latency only while on. Saved
+  with the project, not in presets. With look-ahead on, detectors listen to
+  ParaEQ's input rather than to the output of the earlier bands.
+- Top bar spacing tightened at the default size so the preset name still
+  fits beside the new Auto button.
+- 367 parameters (7 global + 24 x 15).
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **63 tests, 0 failures** (7 new: 6 Auto Gain, 1 look-ahead) |
+| Plugin tests (Linux; Windows CI) | **107 checks, 0 failures** (14 new). Auto Gain: a +9 dB wide bell (Q 0.4) gets -4.20 dB, and the output at 1 kHz drops by exactly that. Look-ahead: reports 240 samples at 48 kHz, audio comes out exactly 240 samples later (bypassed too), back to 0 when off, restored when a project loads. First 2 ms of a sudden -6 dBFS burst: -6.57 dB without look-ahead, -12.99 dB with. |
+| GUI tests (Linux, Xvfb) | **All pass** (5 new: Auto button shown and working, tooltip shows the correction, LA button shown and working) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** In particular, whether Cubase picks up the latency change straight away when LA is switched during playback is untested. |
+
+---
+
+# Version 1.3: sidechain and ratio for dynamic bands (2026-11-20)
+
+## What changed
+
+- **External sidechain.** ParaEQ now has an optional stereo side-chain input
+  (off until activated in the host). A dynamic band with **SC** on (new
+  parameter `bNN_sc`) feeds its detector from the side-chain instead of its
+  own audio, still through the band's detector filter. Example: duck a bass
+  guitar's low end only when the kick hits. With SC on but nothing routed
+  the band hears silence and stays at its set gain. The graph readout marks
+  such bands "(SC)".
+- **Ratio** per dynamic band (new parameter `bNN_ratio`, 1:1 to 20:1, shown
+  as "4.0:1"). Before, it was fixed at 2:1.
+- Both default to how earlier versions behaved (2:1, own signal), so older
+  projects, presets and copied bands sound the same. No state version bump.
+- Band panel: **SC** button next to Dynamic, **Ratio** knob between Range and
+  Attack. Copy/paste of a band includes both.
+- Processor: main channels and side-chain channels are now separated; only
+  the main bus is processed and the side-chain channels are cleared after use.
+  Mono or stereo side-chain, with mono or stereo main.
+- 365 parameters (5 global + 24 x 15).
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **56 tests, 0 failures** (4 new: ratio curve, sidechain ducking, no sidechain connected / linked stereo sidechain, smooth source switch) |
+| Plugin tests (Linux; Windows CI) | **93 checks, 0 failures** (11 new). Ducking through the real plugin at 100 Hz: 0.00 dB with the side-chain silent, -12.00 dB with it loud (range -12, 4:1), back to 0.00 dB after. Side-chain channels never reach the output. |
+| GUI tests (Linux, Xvfb) | **All pass** (4 new: SC button and Ratio knob shown, SC button sets the parameter, Ratio knob follows it, SC greys out with Dynamic off) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** The side-chain routing steps in the manual follow Cubase's usual side-chain workflow but have not been checked on Joe's Cubase version. |
+
+## Open issues and honest notes
+
+- Dynamic EQ still has no look-ahead; the knee is fixed at 6 dB.
+- The side-chain's left and right are always linked (loudest wins).
+
+---
+
 # Version 1.2: Gain Scale and faster editing (2026-11-20)
 
 ## What changed

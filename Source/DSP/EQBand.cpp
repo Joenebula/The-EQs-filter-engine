@@ -90,13 +90,37 @@ bool EQBand::updateDynamics (double* const* channels, int firstChannel, int numC
         // Two stages: a short RMS average (about two periods of the band
         // frequency) turns the detector output into a steady level, then the
         // attack/release smoothing shapes how fast the gain follows it.
+        // External sidechain: the same detector, fed from the sidechain
+        // input (every sidechain channel, linked) instead of the band's
+        // own signal. Switching source clears the detector's filter memory.
+        const bool external = dyn.externalSidechain;
+        if (external != detectorExternal)
+        {
+            for (auto& st : detectorState)
+                st.reset();
+            detectorExternal = external;
+        }
+        // Look-ahead: the own signal comes from the undelayed copy (indexed
+        // like the processed channels, so offset by firstChannel).
+        const double* ownSrc[maxChannels] {};
+        const double* const* own = channels;
+        if (! external && ownDetector != nullptr)
+        {
+            for (int ch = 0; ch < numChannels; ++ch)
+                ownSrc[ch] = ownDetector[firstChannel + ch];
+            own = ownSrc;
+        }
+        const double* const* src = external ? sidechain : own;
+        const int srcChannels = external ? numSidechainChannels : numChannels;
+        const int stateOffset = external ? 0 : firstChannel;
+
         double ms = meanSquare, env = envelope;
         for (int i = 0; i < len; ++i)
         {
             double power = 0.0;
-            for (int ch = 0; ch < numChannels; ++ch)
+            for (int ch = 0; ch < srcChannels; ++ch)
             {
-                const double y = detectorState[(size_t) (firstChannel + ch)].process (detectorCoeffs, channels[ch][pos + i]);
+                const double y = detectorState[(size_t) (stateOffset + ch)].process (detectorCoeffs, src[ch][pos + i]);
                 power = std::max (power, y * y);
             }
             ms  += rmsCoeff * (power - ms);

@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "DSP/AutoGain.h"
 #include "PluginEditor.h"
 #include "Parameters.h"
 
@@ -11,7 +12,10 @@ namespace
 ParaEQAudioProcessor::ParaEQAudioProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
-                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                          // Optional sidechain for dynamic bands (1.3). Off until the
+                          // user routes a track to it in Cubase.
+                          .withInput  ("Sidechain", juce::AudioChannelSet::stereo(), false)),
       apvts (*this, &undoManager, "ParaEQState", peq::params::createLayout())
 {
     inputGainDb  = apvts.getRawParameterValue (peq::params::inputGain);
@@ -19,6 +23,10 @@ ParaEQAudioProcessor::ParaEQAudioProcessor()
     bypassParam  = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (peq::params::bypass));
     analogMatch  = apvts.getRawParameterValue (peq::params::analogMatch);
     gainScale    = apvts.getRawParameterValue (peq::params::gainScale);
+    autoGainParam = apvts.getRawParameterValue (peq::params::autoGain);
+    lookaheadParam = apvts.getRawParameterValue (peq::params::lookahead);
+    jassert (lookaheadParam != nullptr);
+    jassert (autoGainParam != nullptr);
     jassert (gainScale != nullptr);
     jassert (inputGainDb != nullptr && outputGainDb != nullptr && bypassParam != nullptr && analogMatch != nullptr);
 
@@ -50,6 +58,8 @@ ParaEQAudioProcessor::ParaEQAudioProcessor()
         bp.range = get (BandField::range);
         bp.att   = get (BandField::att);
         bp.rel   = get (BandField::rel);
+        bp.ratio = get (BandField::ratio);
+        bp.sc    = get (BandField::sc);
     }
 }
 
@@ -58,6 +68,8 @@ void ParaEQAudioProcessor::updateEngine() noexcept
     const auto& slopes = peq::limits::slopesDbPerOct;
     const bool matched = analogMatch->load() >= 0.5f;
     const double scale = juce::jlimit (0.0, 2.0, (double) gainScale->load() / 100.0);
+    std::array<peq::BandParameters, peq::FilterEngine::numBands> bandsNow {};
+    std::array<peq::ChannelMode, peq::FilterEngine::numBands> modesNow {};
 
     for (int b = 0; b < peq::FilterEngine::numBands; ++b)
     {
@@ -74,6 +86,8 @@ void ParaEQAudioProcessor::updateEngine() noexcept
         const auto mode = (peq::ChannelMode) juce::jlimit (0, (int) peq::ChannelMode::NumModes - 1,
                                                            juce::roundToInt (bp.mode->load()));
         engine.setBand (b, p, mode);
+        bandsNow[(size_t) b] = p;
+        modesNow[(size_t) b] = mode;
 
         peq::DynamicSettings d;
         d.enabled     = bp.dyn->load() >= 0.5f;
@@ -81,8 +95,40 @@ void ParaEQAudioProcessor::updateEngine() noexcept
         d.rangeDb     = (double) bp.range->load();
         d.attackMs    = (double) bp.att->load();
         d.releaseMs   = (double) bp.rel->load();
+        d.ratio       = (double) bp.ratio->load();
+        d.externalSidechain = bp.sc->load() >= 0.5f;
         engine.setBandDynamics (b, d);
     }
+
+    // Auto Gain: rework the correction only when the curve changed.
+    const double sr = getSampleRate() > 0.0 ? getSampleRate() : 48000.0;
+    auto same = [] (const peq::BandParameters& a, const peq::BandParameters& b)
+    {
+        return a.enabled == b.enabled && a.type == b.type && a.slopeDbPerOct == b.slopeDbPerOct
+            && a.analogMatched == b.analogMatched && juce::exactlyEqual (a.frequencyHz, b.frequencyHz)
+            && juce::exactlyEqual (a.gainDb, b.gainDb) && juce::exactlyEqual (a.q, b.q);
+    };
+    bool changed = ! juce::exactlyEqual (sr, autoGainSampleRate);
+    for (int b = 0; b < peq::FilterEngine::numBands && ! changed; ++b)
+        changed = ! same (bandsNow[(size_t) b], autoGainBands[(size_t) b])
+               || (bandsNow[(size_t) b].enabled && modesNow[(size_t) b] != autoGainModes[(size_t) b]);
+    if (changed)
+    {
+        autoGainBands = bandsNow;
+        autoGainModes = modesNow;
+        autoGainSampleRate = sr;
+        autoGainDb.store ((float) peq::autogain::correctionDb (bandsNow.data(), modesNow.data(),
+                                                               peq::FilterEngine::numBands, sr),
+                          std::memory_order_relaxed);
+    }
+}
+
+double ParaEQAudioProcessor::outputGainTargetDb() const noexcept
+{
+    double db = (double) outputGainDb->load();
+    if (autoGainParam->load() >= 0.5f)
+        db += (double) autoGainDb.load (std::memory_order_relaxed);
+    return db;
 }
 
 void ParaEQAudioProcessor::updateSolo() noexcept
@@ -118,7 +164,17 @@ bool ParaEQAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) c
     const auto out = layouts.getMainOutputChannelSet();
     if (in != out)
         return false;
-    return out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo();
+    if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
+        return false;
+
+    // Sidechain: off, mono or stereo.
+    if (layouts.inputBuses.size() > 1)
+    {
+        const auto sc = layouts.getChannelSet (true, 1);
+        if (! sc.isDisabled() && sc != juce::AudioChannelSet::mono() && sc != juce::AudioChannelSet::stereo())
+            return false;
+    }
+    return true;
 }
 
 void ParaEQAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -130,15 +186,25 @@ void ParaEQAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     analyserScratch.assign ((size_t) block, 0.0f);
     dryBuffer.setSize (channels, block);
 
+    lookaheadSamples = juce::jmax (1, juce::roundToInt (peq::params::lookaheadMs * 0.001 * sampleRate));
+    delayLines.setSize (2, lookaheadSamples);
+    delayLines.clear();
+    delayPos = 0;
+    aheadBuffer.setSize (4, block);
+    aheadBuffer.clear();
+    lookaheadActive = lookaheadParam->load() >= 0.5f;
+    setLatencySamples (getLookaheadLatency());
+
     inGain.reset (sampleRate, gainSmoothingSeconds);
     outGain.reset (sampleRate, gainSmoothingSeconds);
     wet.reset (sampleRate, bypassFadeSeconds);
 
     inGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain ((double) inputGainDb->load()));
-    outGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain ((double) outputGainDb->load()));
     wet.setCurrentAndTargetValue (bypassParam->get() ? 0.0 : 1.0);
 
+    autoGainSampleRate = 0.0;   // force a fresh Auto Gain correction
     updateEngine();
+    outGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (outputGainTargetDb()));
     engine.prepare (sampleRate);
     engine.snapToTargets();
     engineIdle = false;
@@ -202,16 +268,42 @@ void ParaEQAudioProcessor::processBlock (juce::AudioBuffer<double>& buffer, juce
 
 void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
 {
-    const int numChannels = juce::jmin (buffer.getNumChannels(), dryBuffer.getNumChannels());
+    // The buffer holds the main channels first, then the sidechain's (when
+    // the host has enabled that bus). Only the main channels are processed.
+    const int mainChannels = juce::jmax (getMainBusNumInputChannels(), getMainBusNumOutputChannels());
+    const int numChannels = juce::jmin (buffer.getNumChannels(), dryBuffer.getNumChannels(),
+                                        mainChannels > 0 ? mainChannels : buffer.getNumChannels(), 2);
     const int numSamples  = buffer.getNumSamples();
 
-    for (int ch = numChannels; ch < buffer.getNumChannels(); ++ch)
-        buffer.clear (ch, 0, numSamples);
+    const double* sidechain[2] {};
+    int numSidechain = 0;
+    if (getBusCount (true) > 1)
+        if (auto* scBus = getBus (true, 1); scBus != nullptr && scBus->isEnabled())
+        {
+            const int first = scBus->getChannelIndexInProcessBlockBuffer (0);
+            const int count = juce::jmin (scBus->getNumberOfChannels(), 2);
+            for (int k = 0; k < count && first + k < buffer.getNumChannels(); ++k)
+                sidechain[numSidechain++] = buffer.getReadPointer (first + k);
+        }
+
+    // Look-ahead on/off: restart the delay and tell the host the new latency.
+    const bool wantLookahead = lookaheadParam->load() >= 0.5f && lookaheadSamples > 0
+                               && delayLines.getNumSamples() >= lookaheadSamples;
+    if (wantLookahead != lookaheadActive.load())
+    {
+        lookaheadActive = wantLookahead;
+        delayLines.clear();
+        delayPos = 0;
+        triggerAsyncUpdate();
+    }
+    const bool ahead = lookaheadActive.load() && numSamples <= aheadBuffer.getNumSamples();
+    if (ahead)
+        applyLookaheadDelay (buffer, numChannels);
 
     inGain.setTargetValue (juce::Decibels::decibelsToGain ((double) inputGainDb->load()));
-    outGain.setTargetValue (juce::Decibels::decibelsToGain ((double) outputGainDb->load()));
     wet.setTargetValue (bypassParam->get() ? 0.0 : 1.0);
     updateEngine();
+    outGain.setTargetValue (juce::Decibels::decibelsToGain (outputGainTargetDb()));
 
     // Fully bypassed and settled: leave the audio untouched. The EQ keeps
     // receiving its settings (above) so it comes back in the right state.
@@ -224,6 +316,8 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
         pushToAnalyser (postFifo, buffer, numChannels);
         for (auto& g : dynamicGainDb)
             g.store (0.0f, std::memory_order_relaxed);
+        for (int ch = numChannels; ch < buffer.getNumChannels(); ++ch)   // sidechain / unused
+            buffer.clear (ch, 0, numSamples);
         publishMeters (buffer, numChannels);
         return;
     }
@@ -242,17 +336,43 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
     double* const* data = buffer.getArrayOfWritePointers();
 
     // 1. Input gain (per-sample smoothed, identical on every channel).
+    double* const* aheadData = aheadBuffer.getArrayOfWritePointers();
     for (int i = 0; i < numSamples; ++i)
     {
         const double g = inGain.getNextValue();
         for (int ch = 0; ch < numChannels; ++ch)
             data[ch][i] *= g;
+        if (ahead)
+            for (int ch = 0; ch < numChannels; ++ch)
+                aheadData[ch][i] *= g;
+    }
+
+    peq::FilterEngine::LookaheadInput lookahead;
+    if (ahead)
+    {
+        lookahead.lr[0] = aheadData[0];
+        lookahead.lr[1] = numChannels > 1 ? aheadData[1] : aheadData[0];
+        if (numChannels > 1)
+        {
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const double a = aheadData[0][i], b = aheadData[1][i];
+                aheadData[2][i] = 0.5 * (a + b);
+                aheadData[3][i] = 0.5 * (a - b);
+            }
+            lookahead.ms[0] = aheadData[2];
+            lookahead.ms[1] = aheadData[3];
+        }
+        else
+        {
+            lookahead.ms[0] = lookahead.ms[1] = aheadData[0];
+        }
     }
 
     pushToAnalyser (preFifo, buffer, numChannels);
 
     // 2. The EQ bands (then the solo/audition filter, normally off).
-    engine.process (data, numChannels, numSamples);
+    engine.process (data, numChannels, numSamples, sidechain, numSidechain, ahead ? &lookahead : nullptr);
     updateSolo();
     soloFilter.process (data, numChannels, numSamples);
 
@@ -272,7 +392,40 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
 
     for (int b = 0; b < peq::FilterEngine::numBands; ++b)
         dynamicGainDb[(size_t) b].store ((float) engine.dynamicOffsetDb (b), std::memory_order_relaxed);
+    for (int ch = numChannels; ch < buffer.getNumChannels(); ++ch)   // sidechain / unused
+        buffer.clear (ch, 0, numSamples);
     publishMeters (buffer, numChannels);
+}
+
+void ParaEQAudioProcessor::applyLookaheadDelay (juce::AudioBuffer<double>& buffer, int numChannels) noexcept
+{
+    // Keeps the undelayed input in aheadBuffer and replaces the main
+    // channels with the same audio lookaheadSamples later.
+    const int n = buffer.getNumSamples();
+    const int len = lookaheadSamples;
+    double* const* data = buffer.getArrayOfWritePointers();
+    double* const* line = delayLines.getArrayOfWritePointers();
+    double* const* ahead = aheadBuffer.getArrayOfWritePointers();
+    const int chans = juce::jmin (numChannels, 2);
+    int pos = delayPos;
+    for (int i = 0; i < n; ++i)
+    {
+        for (int ch = 0; ch < chans; ++ch)
+        {
+            const double x = data[ch][i];
+            ahead[ch][i] = x;
+            data[ch][i] = line[ch][pos];
+            line[ch][pos] = x;
+        }
+        if (++pos >= len)
+            pos = 0;
+    }
+    delayPos = pos;
+}
+
+void ParaEQAudioProcessor::handleAsyncUpdate()
+{
+    setLatencySamples (getLookaheadLatency());
 }
 
 void ParaEQAudioProcessor::publishMeters (const juce::AudioBuffer<double>& buffer, int numChannels) noexcept

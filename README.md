@@ -4,7 +4,7 @@ An original parametric EQ plugin (VST3, Windows, for use in Cubase), built with
 JUCE and C++17. Personal-use project. No third-party EQ code, names or artwork
 is used; all DSP is written from published filter maths.
 
-**Status: all 10 phases done; version 1.2 adds analog-matched curves, Gain Scale and faster editing.** 24 working EQ bands (each with its own type, slope
+**Status: all 10 phases done; version 1.4 adds Auto Gain and look-ahead for dynamic bands (1.3: sidechain and ratio; 1.2: Gain Scale and faster editing; 1.1: analog-matched curves).** 24 working EQ bands (each with its own type, slope
 and stereo / left / right / mid / side routing), dynamic EQ on any bell or
 shelf, an interactive EQ graph, a real-time spectrum analyser and an output
 meter, plus presets, A/B compare and copy/paste of bands.

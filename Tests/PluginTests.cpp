@@ -163,10 +163,11 @@ int main()
     {
         auto p = makeProcessor();
         using CS = juce::AudioChannelSet;
-        auto layout = [] (CS in, CS out)
+        auto layout = [] (CS in, CS out, CS sidechain = CS::disabled())
         {
             juce::AudioProcessor::BusesLayout l;
             l.inputBuses.add (in);
+            l.inputBuses.add (sidechain);
             l.outputBuses.add (out);
             return l;
         };
@@ -174,20 +175,28 @@ int main()
         check (p->checkBusesLayoutSupported (layout (CS::mono(), CS::mono())), "mono in/out supported");
         check (! p->checkBusesLayoutSupported (layout (CS::mono(), CS::stereo())), "mono-to-stereo refused (in = out only)");
         check (! p->checkBusesLayoutSupported (layout (CS::create5point1(), CS::create5point1())), "5.1 refused");
+        check (p->getBusCount (true) == 2 && ! p->getBus (true, 1)->isEnabled(), "sidechain input exists and is off by default");
+        check (p->getTotalNumInputChannels() == 2, "sidechain off: host sends 2 channels");
+        check (p->checkBusesLayoutSupported (layout (CS::stereo(), CS::stereo(), CS::stereo()))
+                   && p->checkBusesLayoutSupported (layout (CS::stereo(), CS::stereo(), CS::mono()))
+                   && p->checkBusesLayoutSupported (layout (CS::mono(), CS::mono(), CS::stereo())),
+               "sidechain mono or stereo supported, with mono or stereo main");
+        check (! p->checkBusesLayoutSupported (layout (CS::stereo(), CS::stereo(), CS::create5point1())), "5.1 sidechain refused");
     }
 
     // ---------------------------------------------------------------- parameters
     {
         auto p = makeProcessor();
         const auto& params = p->getParameters();
-        const int expected = 5 + peq::params::numBands * 13;
-        check (params.size() == expected, "parameter count = 5 global + 24 bands x 13");
+        const int expected = 7 + peq::params::numBands * 15;
+        check (params.size() == expected, "parameter count = 7 global + 24 bands x 15");
 
         bool allAutomatable = true, idsOk = true, uniqueIds = true;
         juce::StringArray ids;
         for (auto* prm : params)
         {
-            allAutomatable = allAutomatable && prm->isAutomatable();
+            if (auto* w = dynamic_cast<juce::AudioProcessorParameterWithID*> (prm); w == nullptr || w->paramID != peq::params::lookahead)
+                allAutomatable = allAutomatable && prm->isAutomatable();
             if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (prm))
             {
                 if (ids.contains (withId->paramID))
@@ -199,7 +208,7 @@ int main()
                 idsOk = false;
             }
         }
-        check (allAutomatable, "every parameter is automatable");
+        check (allAutomatable, "every parameter except look-ahead is automatable");
         check (idsOk && uniqueIds, "every parameter has a unique ID");
 
         // IDs saved in projects must never change.
@@ -246,7 +255,7 @@ int main()
             if (! near (getValue (pa), getValue (pb), 1e-3 * std::max (1.0, std::abs ((double) getValue (pa)))))
                 ++mismatches;
         }
-        check (mismatches == 0, "save then load restores all 317 parameters");
+        check (mismatches == 0, "save then load restores all 367 parameters");
         check (juce::exactlyEqual ((double) b->getState().state.getProperty ("displayRange"), 12.0), "editor settings saved with the state");
 
         auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
@@ -371,6 +380,238 @@ int main()
         setValue (param (*q, peq::params::gainScale), 30.0f);
         q->setStateInformation (old.getData(), (int) old.getSize());
         check (near (getValue (param (*q, peq::params::gainScale)), 100.0, 1e-3), "gain scale: older projects load at 100 % (same sound)");
+    }
+
+    // Sidechain and ratio (1.3).
+    {
+        // Older states (no ratio / sc parameters) load at 2:1 and own signal,
+        // exactly how dynamic bands worked before.
+        auto p = makeProcessor();
+        juce::MemoryBlock saved;
+        p->getStateInformation (saved);
+        auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
+        for (auto* child = xml->getFirstChildElement(); child != nullptr;)
+        {
+            auto* next = child->getNextElement();
+            const auto id = child->getStringAttribute ("id");
+            if (id.endsWith ("_ratio") || id.endsWith ("_sc"))
+                xml->removeChildElement (child, true);
+            child = next;
+        }
+        juce::MemoryBlock old;
+        juce::AudioProcessor::copyXmlToBinary (*xml, old);
+        auto q = makeProcessor();
+        setValue (bandParam (*q, 3, BandField::ratio), 8.0f);
+        setValue (bandParam (*q, 3, BandField::sc), 1.0f);
+        q->setStateInformation (old.getData(), (int) old.getSize());
+        check (near (getValue (bandParam (*q, 3, BandField::ratio)), 2.0, 1e-3)
+                   && getValue (bandParam (*q, 3, BandField::sc)) < 0.5f,
+               "sidechain/ratio: older projects load at 2:1, own signal (same sound)");
+        check (bandParam (*q, 0, BandField::ratio)->getCurrentValueAsText() == "2.0:1", "ratio shows as 2.0:1");
+    }
+    {
+        // Ducking through the real plugin: a 100 Hz bell listens to the
+        // sidechain; the main input is a steady 100 Hz tone.
+        auto p = makeProcessor (48000.0, 512);
+        juce::AudioProcessor::BusesLayout l;
+        l.inputBuses.add (juce::AudioChannelSet::stereo());
+        l.inputBuses.add (juce::AudioChannelSet::stereo());
+        l.outputBuses.add (juce::AudioChannelSet::stereo());
+        check (p->setBusesLayout (l) && p->getTotalNumInputChannels() == 4, "sidechain can be switched on (4 input channels)");
+        p->prepareToPlay (48000.0, 512);
+        setValue (bandParam (*p, 0, BandField::used), 1.0f);
+        setValue (bandParam (*p, 0, BandField::type), 0.0f);   // bell
+        setValue (bandParam (*p, 0, BandField::freq), 100.0f);
+        setValue (bandParam (*p, 0, BandField::gain), 0.0f);
+        setValue (bandParam (*p, 0, BandField::dyn), 1.0f);
+        setValue (bandParam (*p, 0, BandField::thr), -30.0f);
+        setValue (bandParam (*p, 0, BandField::range), -12.0f);
+        setValue (bandParam (*p, 0, BandField::ratio), 4.0f);
+        setValue (bandParam (*p, 0, BandField::sc), 1.0f);
+        setValue (bandParam (*p, 0, BandField::rel), 20.0f);
+
+        juce::AudioBuffer<float> buf (4, 512);
+        juce::MidiBuffer midi;
+        auto run = [&] (float scLevel, int blocks)
+        {
+            double re = 0.0, im = 0.0, leak = 0.0;
+            int n = 0;
+            static int t = 0;
+            for (int b = 0; b < blocks; ++b)
+            {
+                for (int i = 0; i < 512; ++i, ++t)
+                {
+                    const float x = (float) (0.25 * std::sin (2.0 * pi * 100.0 * t / 48000.0));
+                    buf.setSample (0, i, x);
+                    buf.setSample (1, i, x);
+                    buf.setSample (2, i, scLevel * x * 4.0f);
+                    buf.setSample (3, i, scLevel * x * 4.0f);
+                }
+                p->processBlock (buf, midi);
+                if (b >= blocks / 2)
+                    for (int i = 0; i < 512; ++i)
+                    {
+                        const double ph = 2.0 * pi * 100.0 * (t - 512 + i) / 48000.0;
+                        re += buf.getSample (0, i) * std::cos (ph);
+                        im += buf.getSample (0, i) * std::sin (ph);
+                        leak = std::max (leak, (double) std::abs (buf.getSample (2, i)) + std::abs (buf.getSample (3, i)));
+                        ++n;
+                    }
+            }
+            return std::pair<double, double> { 20.0 * std::log10 (2.0 * std::sqrt (re * re + im * im) / n / 0.25), leak };
+        };
+        const auto quiet = run (0.0f, 60);   // sidechain silent: band at its set 0 dB
+        const auto loud  = run (1.0f, 60);   // sidechain at 0 dBFS: 30 dB over, 4:1 -> capped at -12
+        const auto after = run (0.0f, 60);
+        std::printf ("       sidechain ducking at 100 Hz: %.2f dB silent, %.2f dB loud, %.2f dB after\n",
+                     quiet.first, loud.first, after.first);
+        check (near (quiet.first, 0.0, 0.1) && near (loud.first, -12.0, 0.4) && near (after.first, 0.0, 0.1),
+               "sidechain: band ducks only while the sidechain is loud (main signal alone does not)");
+        check (getValue (bandParam (*p, 0, BandField::sc)) >= 0.5f && quiet.second <= 0.0 && loud.second <= 0.0,
+               "sidechain channels are not passed on as output");
+
+        // Same settings with SC off: the band reacts to its own loud input.
+        setValue (bandParam (*p, 0, BandField::sc), 0.0f);
+        const auto own = run (0.0f, 60);    // main at -12 dBFS: 18 dB over at 4:1 -> -12 (range cap)
+        check (own.first < -10.0, "sidechain off: band follows its own signal again");
+
+        // A dynamic band set to SC with the sidechain bus switched off stays static.
+        auto r = makeProcessor (48000.0, 512);
+        setupBell (*r, 0.0f);
+        setValue (bandParam (*r, 0, BandField::dyn), 1.0f);
+        setValue (bandParam (*r, 0, BandField::thr), -40.0f);
+        setValue (bandParam (*r, 0, BandField::sc), 1.0f);
+        check (near (sineGainDb (*r, 48000.0, 1000.0, 512), 0.0, 0.1), "SC band with no sidechain connected stays at its set gain");
+    }
+
+    // Auto Gain (1.4).
+    {
+        auto p = makeProcessor();
+        check (getValue (param (*p, peq::params::autoGain)) < 0.5f, "auto gain: off for a new instance");
+        setupBell (*p, 9.0f);
+        setValue (bandParam (*p, 0, BandField::q), 0.4f);
+        const double off = sineGainDb (*p, 48000.0, 1000.0, 512);
+        const double corr = p->getAutoGainCorrectionDb();
+        setValue (param (*p, peq::params::autoGain), 1.0f);
+        const double on = sineGainDb (*p, 48000.0, 1000.0, 512);
+        std::printf ("       auto gain: +9 dB wide bell, correction %.2f dB; 1 kHz %.2f -> %.2f dB\n", corr, off, on);
+        check (corr < -2.0 && corr > -9.0 && near (on - off, corr, 0.1), "auto gain: wide +9 dB bell is turned down by its correction");
+
+        setValue (bandParam (*p, 0, BandField::gain), -9.0f);
+        sineGainDb (*p, 48000.0, 1000.0, 512);
+        check (p->getAutoGainCorrectionDb() > 2.0f, "auto gain: a cut is turned up");
+
+        // Not part of presets (a listening aid, like bypass).
+        auto& pm = p->getPresets();
+        const auto captured = pm.capture();
+        check (! captured.getChildWithProperty ("id", peq::params::autoGain).isValid(), "auto gain is not saved in presets");
+
+        // Saved with the project.
+        juce::MemoryBlock saved;
+        p->getStateInformation (saved);
+        auto q = makeProcessor();
+        q->setStateInformation (saved.getData(), (int) saved.getSize());
+        check (getValue (param (*q, peq::params::autoGain)) >= 0.5f, "auto gain: saved with the project");
+    }
+
+    // Look-ahead (1.4).
+    {
+        auto p = makeProcessor (48000.0, 512);
+        check (getValue (param (*p, peq::params::lookahead)) < 0.5f && p->getLatencySamples() == 0,
+               "look-ahead: off for a new instance, zero latency");
+        check (! param (*p, peq::params::lookahead)->isAutomatable(), "look-ahead is not automatable (it changes latency)");
+
+        // Switched on: latency reported, audio delayed by exactly that much.
+        setValue (param (*p, peq::params::lookahead), 1.0f);
+        juce::AudioBuffer<float> buf (2, 512);
+        juce::MidiBuffer midi;
+        buf.clear();
+        p->processBlock (buf, midi);                       // picks up the switch
+        p->flushLatencyUpdate();                           // latency report is async
+        const int latency = p->getLatencySamples();
+        check (latency == 240 && p->getLookaheadLatency() == 240, "look-ahead: reports 5 ms latency (240 samples at 48 kHz)");
+
+        auto impulseAt = [&] (ParaEQAudioProcessor& proc, int where)
+        {
+            int found = -1;
+            for (int block = 0; block < 3 && found < 0; ++block)
+            {
+                buf.clear();
+                if (block == 0)
+                    for (int ch = 0; ch < 2; ++ch)
+                        buf.setSample (ch, where, 1.0f);
+                proc.processBlock (buf, midi);
+                for (int i = 0; i < 512 && found < 0; ++i)
+                    if (std::abs (buf.getSample (0, i)) > 0.5f)
+                        found = block * 512 + i;
+            }
+            return found;
+        };
+        check (impulseAt (*p, 100) == 100 + 240, "look-ahead: audio comes out exactly 240 samples later");
+
+        // Bypass keeps the same delay, so switching bypass doesn't jump in time.
+        setValue (param (*p, peq::params::bypass), 1.0f);
+        for (int i = 0; i < 10; ++i) { buf.clear(); p->processBlock (buf, midi); }
+        check (impulseAt (*p, 50) == 50 + 240, "look-ahead: bypassed audio is delayed the same");
+        setValue (param (*p, peq::params::bypass), 0.0f);
+
+        // Off again: back to zero latency.
+        setValue (param (*p, peq::params::lookahead), 0.0f);
+        buf.clear();
+        p->processBlock (buf, midi);
+        p->flushLatencyUpdate();
+        check (p->getLatencySamples() == 0 && impulseAt (*p, 10) == 10, "look-ahead off: zero latency again");
+
+        // Not in presets; saved with the project (and the latency comes back).
+        setValue (param (*p, peq::params::lookahead), 1.0f);
+        check (! p->getPresets().capture().getChildWithProperty ("id", peq::params::lookahead).isValid(),
+               "look-ahead is not saved in presets");
+        juce::MemoryBlock saved;
+        p->getStateInformation (saved);
+        auto q = makeProcessor (48000.0, 512);
+        q->setStateInformation (saved.getData(), (int) saved.getSize());
+        q->prepareToPlay (48000.0, 512);
+        check (q->getLatencySamples() == 240, "look-ahead: saved with the project, latency restored on load");
+    }
+    {
+        // A dynamic band catches the start of a burst much better with look-ahead.
+        auto onsetDb = [] (bool la)
+        {
+            auto p = makeProcessor (48000.0, 256);
+            setValue (bandParam (*p, 0, BandField::used), 1.0f);
+            setValue (bandParam (*p, 0, BandField::freq), 2000.0f);
+            setValue (bandParam (*p, 0, BandField::dyn), 1.0f);
+            setValue (bandParam (*p, 0, BandField::thr), -30.0f);
+            setValue (bandParam (*p, 0, BandField::range), -12.0f);
+            setValue (bandParam (*p, 0, BandField::att), 1.0f);
+            setValue (param (*p, peq::params::lookahead), la ? 1.0f : 0.0f);
+            const int delay = la ? 240 : 0;
+            juce::AudioBuffer<float> buf (2, 256);
+            juce::MidiBuffer midi;
+            const int onset = 4864;
+            double peak = 0.0;
+            for (int block = 0; block < 40; ++block)
+            {
+                for (int i = 0; i < 256; ++i)
+                {
+                    const int t = block * 256 + i;
+                    const float x = t >= onset ? (float) (0.5 * std::sin (2.0 * pi * 2000.0 * (t - onset) / 48000.0)) : 0.0f;
+                    buf.setSample (0, i, x);
+                    buf.setSample (1, i, x);
+                }
+                p->processBlock (buf, midi);
+                for (int i = 0; i < 256; ++i)
+                {
+                    const int t = block * 256 + i - delay;   // time in the input's frame
+                    if (t >= onset && t < onset + 96)
+                        peak = std::max (peak, (double) std::abs (buf.getSample (0, i)));
+                }
+            }
+            return 20.0 * std::log10 (peak);
+        };
+        const double without = onsetDb (false), with = onsetDb (true);
+        std::printf ("       first 2 ms of a -6 dBFS burst: %.2f dB without look-ahead, %.2f dB with\n", without, with);
+        check (with < without - 4.0, "look-ahead: dynamic band catches the start of a burst (4+ dB lower)");
     }
 
     // Corrupt or foreign data is ignored.
@@ -514,6 +755,7 @@ int main()
         auto p = makeProcessor (48000.0, 512);
         juce::AudioProcessor::BusesLayout mono;
         mono.inputBuses.add (juce::AudioChannelSet::mono());
+        mono.inputBuses.add (juce::AudioChannelSet::disabled());   // sidechain
         mono.outputBuses.add (juce::AudioChannelSet::mono());
         check (p->setBusesLayout (mono), "switches to mono");
         p->prepareToPlay (48000.0, 512);

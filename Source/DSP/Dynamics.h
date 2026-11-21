@@ -16,6 +16,12 @@ namespace peq
 
         offset = clamp (slope * softKnee (level - threshold), 0, |range|) * sign (range)
 
+    where slope = 1 - 1/ratio (2:1 moves the gain 1 dB per 2 dB over).
+    With externalSidechain set, the detector listens to the plugin's
+    sidechain input instead of the band's own signal (still through the
+    band's detector filter); with no sidechain connected it hears silence,
+    so the band stays at its set gain.
+
     A negative range turns the band down when the region gets loud (like a
     compressor for that region, e.g. de-essing); a positive range turns it up
     (upward expansion, e.g. bringing out a kick drum's attack).
@@ -27,6 +33,8 @@ struct DynamicSettings
     double rangeDb      = -6.0;    // most the gain may move, + or -
     double attackMs     = 10.0;
     double releaseMs    = 150.0;
+    double ratio        = 2.0;     // 1:1 (no change) to 20:1; added in 1.3 (was fixed at 2:1)
+    bool externalSidechain = false; // detector listens to the sidechain input (1.3)
 };
 
 namespace dynamics
@@ -35,9 +43,14 @@ namespace dynamics
     constexpr double minRangeDb = -30.0,     maxRangeDb = 30.0;
     constexpr double minAttackMs = 0.1,      maxAttackMs = 200.0;
     constexpr double minReleaseMs = 5.0,     maxReleaseMs = 2000.0;
+    constexpr double minRatio = 1.0,         maxRatio = 20.0;
+    constexpr double defaultRatio = 2.0;
 
-    /** Gain change per dB over the threshold (0.5 = 1 dB per 2 dB, like 2:1). */
-    constexpr double slope = 0.5;
+    /** Gain change per dB over the threshold (0.5 = 1 dB per 2 dB, i.e. 2:1). */
+    inline double slopeForRatio (double ratio) noexcept
+    {
+        return 1.0 - 1.0 / std::clamp (ratio, minRatio, maxRatio);
+    }
     /** Soft knee width around the threshold, in dB. */
     constexpr double kneeDb = 6.0;
 
@@ -53,6 +66,7 @@ namespace dynamics
         s.rangeDb     = std::clamp (s.rangeDb, minRangeDb, maxRangeDb);
         s.attackMs    = std::clamp (s.attackMs, minAttackMs, maxAttackMs);
         s.releaseMs   = std::clamp (s.releaseMs, minReleaseMs, maxReleaseMs);
+        s.ratio       = std::isfinite (s.ratio) ? std::clamp (s.ratio, minRatio, maxRatio) : defaultRatio;
         return s;
     }
 
@@ -69,7 +83,7 @@ namespace dynamics
     /** The gain offset (dB) for a detected level (dBFS). */
     inline double gainOffset (double levelDb, const DynamicSettings& s) noexcept
     {
-        const double amount = std::min (std::abs (s.rangeDb), slope * softOver (levelDb - s.thresholdDb));
+        const double amount = std::min (std::abs (s.rangeDb), slopeForRatio (s.ratio) * softOver (levelDb - s.thresholdDb));
         return s.rangeDb < 0.0 ? -amount : amount;
     }
 

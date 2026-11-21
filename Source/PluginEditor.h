@@ -44,6 +44,7 @@ private:
     void importPreset();
     void exportPreset();
     void updatePresetBar();
+    void updateAutoGainTooltip();
 
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
@@ -56,7 +57,7 @@ private:
     peq::gui::BandPanel bandPanel;
 
     juce::TextButton undoButton { "Undo" }, redoButton { "Redo" }, bypassButton { "Bypass" };
-    juce::TextButton analogButton { "Analog" };
+    juce::TextButton analogButton { "Analog" }, autoGainButton { "Auto" };
     juce::TextButton analyserButton { "Analyser" };
     juce::TextButton presetButton, prevPresetButton { "<" }, nextPresetButton { ">" }, abButton { "A" };
     std::unique_ptr<juce::FileChooser> fileChooser;
@@ -66,7 +67,7 @@ private:
     peq::gui::OutputMeter outputMeter;
     juce::TooltipWindow tooltips { this, 600 };
     std::unique_ptr<SliderAttachment> inGainAtt, outGainAtt, scaleAtt;
-    std::unique_ptr<ButtonAttachment> bypassAtt, analogAtt;
+    std::unique_ptr<ButtonAttachment> bypassAtt, analogAtt, autoGainAtt;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParaEQAudioProcessorEditor)
 };
