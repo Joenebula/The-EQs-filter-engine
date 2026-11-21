@@ -138,6 +138,17 @@ public:
     /** The clickable bar along the bottom of the graph for clash `index`. */
     juce::Rectangle<float> clashBarArea (int index) const;
 
+    /** Listen while dragging (2.2): while a node is dragged, solo that
+        band; the previous solo comes back on release. Not saved by the graph:
+        the editor stores it through onListenWhileDraggingChanged. */
+    void setListenWhileDragging (bool on);
+    bool getListenWhileDragging() const noexcept { return listenWhileDragging; }
+    bool isAuditioning() const noexcept { return auditioning; }
+    std::function<void (bool)> onListenWhileDraggingChanged;
+    /** Starts / ends a node drag as the mouse would (tests). */
+    void beginDragForTests (int band) { beginDrag (band, nodePosition (band)); }
+    void endDragForTests() { endDrag(); }
+
     /** The output analyser, as drawn (tests). */
     const SpectrumAnalyser& getPostAnalyser() const noexcept { return postAnalyser; }
 
@@ -218,6 +229,8 @@ private:
 
     // Drag state.
     int dragBand = -1;
+    bool listenWhileDragging = false, auditioning = false;
+    int soloBeforeAudition = -1;
     juce::Point<float> dragStartMouse;
     double dragStartLogFreq = 0.0, dragStartGain = 0.0, dragStartLogQ = 0.0;
     bool dragMovesGain = false, dragMovesQ = false;
