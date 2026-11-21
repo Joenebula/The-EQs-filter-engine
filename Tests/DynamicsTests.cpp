@@ -471,3 +471,36 @@ TEST_CASE ("Dynamics: look-ahead input lets the band act before a burst arrives"
     CHECK (without > toDb (0.5) - 3.0);
     CHECK (with < without - 4.0);   // measured: about 5.5 dB lower (-6.3 vs -11.8 dB)
 }
+
+TEST_CASE ("Dynamics: learn threshold picks the level only the loudest quarter goes over")
+{
+    std::vector<double> levels;
+    for (int i = 0; i < 100; ++i)
+        levels.push_back (-40.0 + 0.2 * i);   // -40 ... -20.2 dBFS, evenly
+    const double t = dynamics::thresholdFromLevels (levels);
+    std::printf ("    learned %.1f dBFS\n", t);
+    CHECK (std::abs (t - (-25.0)) <= 0.5);                       // 75th percentile
+    CHECK (std::abs (dynamics::thresholdFromLevels (levels, 0.5) - (-30.0)) <= 0.5);
+    CHECK (std::abs (t * 2.0 - std::round (t * 2.0)) < 1e-9);    // 0.5 dB steps
+
+    // Order doesn't matter; silence is ignored.
+    std::reverse (levels.begin(), levels.end());
+    for (int i = 0; i < 200; ++i)
+        levels.push_back (-200.0);
+    CHECK (std::abs (dynamics::thresholdFromLevels (levels) - t) < 1e-9);
+}
+
+TEST_CASE ("Dynamics: learn threshold needs enough audio and stays in range")
+{
+    CHECK (std::isnan (dynamics::thresholdFromLevels ({})));
+    CHECK (std::isnan (dynamics::thresholdFromLevels (std::vector<double> (50, -150.0))));
+    CHECK (std::isnan (dynamics::thresholdFromLevels ({ -20.0, -21.0, -22.0 })));
+    CHECK (dynamics::thresholdFromLevels (std::vector<double> (20, 6.0)) <= dynamics::maxThresholdDb);
+    CHECK (dynamics::thresholdFromLevels (std::vector<double> (20, -65.0)) >= dynamics::minThresholdDb);
+
+    // Mostly silence with a short dying tail: not enough to go on.
+    std::vector<double> tail (100, -200.0);
+    for (int i = 0; i < 12; ++i)
+        tail[(size_t) i] = -40.0 - 2.0 * i;
+    CHECK (std::isnan (dynamics::thresholdFromLevels (tail)));
+}

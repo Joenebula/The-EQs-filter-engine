@@ -150,6 +150,13 @@ public:
     float getAutoGainCorrectionDb() const noexcept { return autoGainDb.load (std::memory_order_relaxed); }
 
     /** Returns the peak since the last call and resets it (message thread). */
+    /** Learn threshold (2.4): the highest detector level (dBFS) band
+        `band` reached since the last call, or -200 if none. */
+    float takeDetectorPeakDb (int band) noexcept
+    {
+        return (band >= 0 && band < peq::FilterEngine::numBands) ? detectorPeakDb[(size_t) band].exchange (-200.0f) : -200.0f;
+    }
+
     float takeOutputPeak (int channel) noexcept
     {
         return (channel >= 0 && channel < 2) ? outputPeak[(size_t) channel].exchange (0.0f) : 0.0f;
@@ -223,6 +230,7 @@ private:
 
     std::array<std::atomic<float>, peq::FilterEngine::numBands> dynamicGainDb {};
     std::array<std::atomic<float>, 2> outputPeak {};
+    std::array<std::atomic<float>, peq::FilterEngine::numBands> detectorPeakDb {};
     void publishMeters (const juce::AudioBuffer<double>& buffer, int numChannels) noexcept;
 
     std::atomic<int> soloBand { -1 };

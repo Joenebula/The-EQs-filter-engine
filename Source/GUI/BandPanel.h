@@ -6,6 +6,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <memory>
+#include <vector>
 
 class ParaEQAudioProcessor;
 
@@ -31,6 +32,16 @@ public:
     /** Updates enablement and the live dynamic readout (timer; public for tests). */
     void refreshActivity();
 
+    /** Learn threshold (2.4): listens to the selected dynamic band's region
+        for a few seconds, then sets Threshold so roughly the loudest quarter
+        goes over it (one undo step). */
+    void startLearning();
+    bool isLearning() const noexcept { return learnSecondsLeft > 0.0; }
+    /** Advances learning by `seconds` (the timer calls it; public for tests). */
+    void learnTick (double seconds);
+    juce::TextButton& getLearnButton() noexcept { return learnButton; }
+    static constexpr double learnSeconds = 4.0;
+
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -52,7 +63,10 @@ private:
     juce::TextButton enableButton { "On" }, soloButton { "Solo" }, deleteButton { "Delete" };
 
     // Dynamic EQ.
-    juce::TextButton dynButton { "Dynamic" }, scButton { "SC" }, lookaheadButton { "LA" };
+    juce::TextButton dynButton { "Dynamic" }, scButton { "SC" }, lookaheadButton { "LA" }, learnButton { "Learn" };
+    std::vector<double> learnLevels;
+    double learnSecondsLeft = 0.0, learnMessageSecondsLeft = 0.0;
+    void stopLearning (const juce::String& message);
     juce::Slider thrKnob, rangeKnob, ratioKnob, attKnob, relKnob;
     juce::Label thrLabel, rangeLabel, ratioLabel, attLabel, relLabel;
     juce::Rectangle<int> dynActivityArea, dynSectionArea;

@@ -61,6 +61,10 @@ BandPanel::BandPanel (ParaEQAudioProcessor& p, AllBands& b)
     addAndMakeVisible (lookaheadButton);
     // Global setting, so attached once rather than per band.
     lookaheadAtt = std::make_unique<ButtonAttachment> (processor.getState(), params::lookahead, lookaheadButton);
+    learnButton.setTooltip ("Learn threshold: play the music, click, and ParaEQ listens to this band's region for "
+                            "4 seconds, then sets Threshold so the band works on roughly the loudest quarter");
+    learnButton.onClick = [this] { if (isLearning()) stopLearning ("Learn"); else startLearning(); };
+    addAndMakeVisible (learnButton);
     dynButton.setClickingTogglesState (true);
     dynButton.setTooltip ("Dynamic EQ: the band's gain moves by up to Range while its frequency region is above Threshold");
     addAndMakeVisible (dynButton);
@@ -93,6 +97,8 @@ void BandPanel::showBand (int newBand)
     freqAtt.reset(); gainAtt.reset(); qAtt.reset(); enableAtt.reset();
     thrAtt.reset(); rangeAtt.reset(); ratioAtt.reset(); attAtt.reset(); relAtt.reset(); dynAtt.reset(); scAtt.reset();
     shownDynGain = 0.0f;
+    if (newBand != band && isLearning())
+        stopLearning ("Learn");
 
     band = newBand;
     const bool has = band >= 0;
@@ -146,6 +152,9 @@ void BandPanel::updateEnablement()
         k->setEnabled (dynOn);
     scButton.setEnabled (dynOn);
     lookaheadButton.setEnabled (dynOn);
+    learnButton.setEnabled (dynOn);
+    if (! dynOn && isLearning())
+        stopLearning ("Learn");
 
     const bool soloed = processor.getSoloBand() == band;
     soloButton.setToggleState (soloed, juce::dontSendNotification);
@@ -157,9 +166,57 @@ void BandPanel::timerCallback()
     refreshActivity();
 }
 
+void BandPanel::startLearning()
+{
+    if (band < 0 || ! bands[(size_t) band].dynamicsActive())
+        return;
+    learnLevels.clear();
+    processor.takeDetectorPeakDb (band);   // drop anything older
+    learnSecondsLeft = learnSeconds;
+    learnMessageSecondsLeft = 0.0;
+    learnButton.setButtonText ("Listening");
+    learnButton.setToggleState (true, juce::dontSendNotification);
+}
+
+void BandPanel::stopLearning (const juce::String& message)
+{
+    learnSecondsLeft = 0.0;
+    learnButton.setToggleState (false, juce::dontSendNotification);
+    learnButton.setButtonText (message);
+    learnMessageSecondsLeft = message == "Learn" ? 0.0 : 2.0;
+}
+
+void BandPanel::learnTick (double seconds)
+{
+    if (learnMessageSecondsLeft > 0.0)
+    {
+        learnMessageSecondsLeft -= seconds;
+        if (learnMessageSecondsLeft <= 0.0)
+            learnButton.setButtonText ("Learn");
+    }
+    if (! isLearning() || band < 0)
+        return;
+    learnLevels.push_back ((double) processor.takeDetectorPeakDb (band));
+    learnSecondsLeft -= seconds;
+    if (learnSecondsLeft > 0.0)
+        return;
+
+    const double t = dynamics::thresholdFromLevels (learnLevels);
+    if (std::isnan (t))
+    {
+        stopLearning ("No audio");
+        return;
+    }
+    processor.beginUndoStep ("Learn threshold");
+    BandParamRefs::setWithGesture (bands[(size_t) band].thr, (float) t);
+    processor.flushUndo();
+    stopLearning ("Learn");
+}
+
 void BandPanel::refreshActivity()
 {
     updateEnablement();
+    learnTick (1.0 / 20.0);
 
     if (band >= 0)
     {
@@ -280,7 +337,12 @@ void BandPanel::resized()
     placeKnob (column (knobW), qLabel, qKnob);
     area.removeFromLeft (8);
     const int dynStart = area.getX();
-    placeKnob (column (knobW), thrLabel, thrKnob);
+    {
+        auto c = column (knobW);
+        learnButton.setBounds (c.removeFromBottom (16).withSizeKeepingCentre (juce::jmin (knobW, 64), 16));
+        c.removeFromBottom (2);
+        placeKnob (c, thrLabel, thrKnob);
+    }
     placeKnob (column (knobW), rangeLabel, rangeKnob);
     placeKnob (column (knobW), ratioLabel, ratioKnob);
     placeKnob (column (knobW), attLabel, attKnob);

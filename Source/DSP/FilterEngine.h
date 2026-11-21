@@ -59,6 +59,12 @@ public:
         return (index >= 0 && index < numBands) ? bands[(size_t) index].currentDynamicOffsetDb() : 0.0;
     }
 
+    /** A band's dynamic detector level now, dBFS (very low when its dynamics are off). */
+    double detectorLevelDb (int index) const noexcept
+    {
+        return (index >= 0 && index < numBands) ? bands[(size_t) index].currentDetectorLevelDb() : -200.0;
+    }
+
     /** Jumps every band straight to its target (after loading state while
         audio is stopped). */
     void snapToTargets() noexcept;
