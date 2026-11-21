@@ -128,6 +128,8 @@ public:
         gain) and after the output gain. Filled only while the editor asks. */
     peq::SampleFifo& getPreFifo() noexcept  { return preFifo; }
     peq::SampleFifo& getPostFifo() noexcept { return postFifo; }
+    /** The side-chain input, mono, while the analyser is wanted (1.8). */
+    peq::SampleFifo& getSidechainFifo() noexcept { return sidechainFifo; }
     void setAnalyserWanted (bool wanted) noexcept { analyserWanted.store (wanted); }
 
     /** Gain change (dB) each band's dynamic EQ is applying now, and the
@@ -208,7 +210,7 @@ private:
 
     void pushToAnalyser (peq::SampleFifo& fifo, const juce::AudioBuffer<double>& buffer, int numChannels) noexcept;
 
-    peq::SampleFifo preFifo, postFifo;
+    peq::SampleFifo preFifo, postFifo, sidechainFifo;
     std::vector<float> analyserScratch;
     std::atomic<bool> analyserWanted { false };
 

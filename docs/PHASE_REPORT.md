@@ -1,3 +1,25 @@
+# Version 1.8: side-chain in the analyser (2026-11-21)
+
+## What changed
+
+- **Analyser > Show side-chain**: the analyser also draws the side-chain
+  input (mono sum) as an amber line labelled SIDE-CHAIN, so overlaps with
+  this track show up. The audio thread fills a third ring buffer only while
+  the analyser is open and the side-chain is active; the editor analyses it
+  like the pre/post feeds. Saved with the other analyser settings (not a
+  parameter).
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **72 tests, 0 failures** (unchanged) |
+| Plugin tests (Linux; Windows CI) | **140 checks, 0 failures** (3 new: nothing sent while the analyser is closed; with it open the feed is the exact mono sum of the side-chain; side-chain channels still cleared on the way out). Allocation checks unchanged and passing. |
+| ThreadSanitizer (plugin tests, Linux) | **0 warnings** (the 2 CPU timing checks fail under TSan's slowdown, as expected) |
+| GUI tests (Linux, Xvfb) | **All pass** (1 new: the side-chain line is drawn when asked; screenshot in the manual) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** |
+
 # Version 1.7: Delta listen (2026-11-21)
 
 ## What changed

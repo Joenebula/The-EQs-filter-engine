@@ -24,6 +24,7 @@ struct AnalyserSettings
     double smoothingOctaves = 1.0 / 6.0;
     float opacity = 0.75f;
     double tiltDbPerOctave = 4.5;   // pivot at 1 kHz; makes typical music look flat
+    bool showSidechain = false;     // 1.8: also draw the side-chain input (another track)
 
     bool showPre() const noexcept  { return show == Show::pre || show == Show::preAndPost; }
     bool showPost() const noexcept { return show == Show::post || show == Show::preAndPost; }
@@ -114,6 +115,8 @@ public:
         drawn as a dashed line. Empty = not shown. */
     void setMatchCurve (std::vector<double> frequencies, std::vector<double> db);
     bool isShowingMatchCurve() const noexcept { return ! matchFreqs.empty(); }
+    /** True once the side-chain line has something to draw (tests). */
+    bool hasSidechainSpectrum() const noexcept { return sidechainFrames > 0; }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -129,6 +132,7 @@ public:
 private:
     void timerCallback() override;
     std::vector<double> matchFreqs, matchDb;
+    int sidechainFrames = 0;
 
     /** Re-reads the parameters; recomputes the curves only if anything moved. */
     bool refreshFromParameters (bool force);
@@ -183,7 +187,7 @@ private:
 
     // Spectrum analyser.
     AnalyserSettings analyser;
-    SpectrumAnalyser preAnalyser, postAnalyser;
+    SpectrumAnalyser preAnalyser, postAnalyser, sidechainAnalyser;
     std::vector<float> fifoScratch;
     double analyserRate = 0.0;
     int analyserOrder = 0;

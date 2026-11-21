@@ -5,7 +5,7 @@ Cubase. It has a large interactive EQ graph, a real-time spectrum analyser,
 dynamic EQ on any bell or shelf (with an external sidechain), left/right/mid/side processing per band,
 presets, A/B compare and full automation.
 
-Version 1.7 · Vendor "Home Studio" · Personal use.
+Version 1.8 · Vendor "Home Studio" · Personal use.
 
 ---
 
@@ -303,9 +303,23 @@ Settings (**Analyser** button):
 | Tilt | 0, 3 or 4.5 dB/oct (makes typical music look flat; display only) |
 | Opacity | 25 to 100 % |
 | Peak hold | A thin line showing recent peaks |
+| Show side-chain | Also draws the track on ParaEQ's side-chain input, as an amber line (see below) |
 | EQ Match | Opens the EQ Match panel (see below) |
 
 The analyser only runs while the window is open.
+
+### Seeing another track (side-chain)
+
+With **Show side-chain** ticked, the analyser also draws whatever is sent to
+ParaEQ's side-chain input, as an amber line labelled SIDE-CHAIN. Use it to see
+where two parts fight: put ParaEQ on the bass, send the kick to its
+side-chain, and the places where the amber line and the bass's spectrum are
+both high are where to cut (or to set a dynamic band with **SC**). Set up the
+side-chain the same way as for Dynamic EQ (see "Sidechain" above). Nothing
+shows until the side-chain is activated in Cubase and something is sent to it.
+The setting is saved with the project, like the other analyser settings.
+
+![The side-chain (amber) over this track's spectrum](screenshot-sidechain.png)
 
 ### EQ Match (make this track sound like a reference)
 
