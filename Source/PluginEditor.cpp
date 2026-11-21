@@ -32,6 +32,7 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
     addAndMakeVisible (graph);
     addAndMakeVisible (outputMeter);
     addAndMakeVisible (bandPanel);
+    addChildComponent (matchPanel);
 
     graph.onSelectionChanged = [this] (int band) { bandPanel.showBand (band); };
     bandPanel.onDeleteRequested = [this] (int band) { graph.deleteBand (band); };
@@ -127,6 +128,7 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
 ParaEQAudioProcessorEditor::~ParaEQAudioProcessorEditor()
 {
     processor.setAnalyserWanted (false);
+    processor.stopMatchLearning();
     setLookAndFeel (nullptr);
 }
 
@@ -171,7 +173,7 @@ void ParaEQAudioProcessorEditor::showAnalyserMenu()
     static const Choice opacities[] = { { "25 %", 0.25 }, { "50 %", 0.5 }, { "75 %", 0.75 }, { "100 %", 1.0 } };
     static const Choice tilts[]     = { { "Off (0 dB/oct)", 0.0 }, { "3 dB/oct", 3.0 }, { "4.5 dB/oct", 4.5 } };
 
-    enum { showBase = 100, orderBase = 200, speedBase = 300, smoothBase = 400, opacityBase = 500, tiltBase = 600, peakId = 1 };
+    enum { showBase = 100, orderBase = 200, speedBase = 300, smoothBase = 400, opacityBase = 500, tiltBase = 600, peakId = 1, matchId = 2 };
 
     auto addGroup = [] (juce::PopupMenu& m, int base, const Choice* choices, int count, double current)
     {
@@ -194,6 +196,8 @@ void ParaEQAudioProcessorEditor::showAnalyserMenu()
     menu.addSubMenu ("Tilt", tiltM);
     menu.addSubMenu ("Opacity", opacityM);
     menu.addItem (peakId, "Peak hold", true, a.peakHold);
+    menu.addSeparator();
+    menu.addItem (matchId, "EQ Match (follow a reference track)...", true, matchPanel.isVisible());
 
     juce::Component::SafePointer<ParaEQAudioProcessorEditor> safe (this);
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&analyserButton),
@@ -201,6 +205,12 @@ void ParaEQAudioProcessorEditor::showAnalyserMenu()
     {
         if (safe == nullptr || r == 0)
             return;
+        if (r == matchId)
+        {
+            if (safe->matchPanel.isVisible()) safe->matchPanel.close();
+            else                              safe->matchPanel.open();
+            return;
+        }
         auto n = a;
         if      (r >= showBase && r < showBase + 4)       n.show = (AnalyserSettings::Show) (r - showBase);
         else if (r >= orderBase && r < orderBase + 4)     n.fftOrder = (int) orders[r - orderBase].value;
@@ -235,6 +245,7 @@ void ParaEQAudioProcessorEditor::timerCallback()
     updatePresetBar();
     updateAutoGainTooltip();
     updateCurveButton();
+    matchPanel.update();
 }
 
 void ParaEQAudioProcessorEditor::updateCurveButton()
@@ -634,4 +645,7 @@ void ParaEQAudioProcessorEditor::resized()
 
     bandPanel.setBounds (area.removeFromBottom (panelHeight));
     graph.setBounds (area);
+    matchPanel.setBounds (area.getX() + 48, area.getY() + 12,
+                          juce::jmin (peq::gui::MatchPanel::preferredWidth, area.getWidth() - 96),
+                          peq::gui::MatchPanel::preferredHeight);
 }

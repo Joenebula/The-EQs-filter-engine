@@ -4,6 +4,7 @@
 #include "GUI/BandPanel.h"
 #include "GUI/BandParams.h"
 #include "GUI/EQGraph.h"
+#include "GUI/MatchPanel.h"
 #include "GUI/OutputMeter.h"
 #include "GUI/ParaLookAndFeel.h"
 
@@ -24,6 +25,7 @@ public:
 
     peq::gui::EQGraph& getGraph() noexcept { return graph; }
     peq::gui::BandPanel& getBandPanel() noexcept { return bandPanel; }
+    peq::gui::MatchPanel& getMatchPanel() noexcept { return matchPanel; }
     peq::gui::OutputMeter& getOutputMeter() noexcept { return outputMeter; }
 
     /** Steps through all presets (factory, then user); +1 next, -1 previous. */
@@ -61,6 +63,7 @@ private:
 
     peq::gui::EQGraph graph;
     peq::gui::BandPanel bandPanel;
+    peq::gui::MatchPanel matchPanel { processor, graph };
 
     juce::TextButton undoButton { "Undo" }, redoButton { "Redo" }, bypassButton { "Bypass" };
     juce::TextButton analogButton { "Analog" }, autoGainButton { "Auto" };

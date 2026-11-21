@@ -615,6 +615,104 @@ int main()
         check (with < without - 4.0, "look-ahead: dynamic band catches the start of a burst (4+ dB lower)");
     }
 
+    // EQ Match (1.6): learn this track against the sidechain, add bands.
+    {
+        auto p = makeProcessor (48000.0, 512);
+        juce::AudioProcessor::BusesLayout l;
+        l.inputBuses.add (juce::AudioChannelSet::stereo());
+        l.inputBuses.add (juce::AudioChannelSet::stereo());
+        l.outputBuses.add (juce::AudioChannelSet::stereo());
+        p->setBusesLayout (l);
+        p->prepareToPlay (48000.0, 512);
+        check (p->isSidechainActive() && ! p->isMatchLearning() && p->applyMatch (8, 1.0) == 0,
+               "EQ Match: not learning at first; nothing learned, nothing applied");
+
+        // A band already in use must be left alone.
+        setValue (bandParam (*p, 0, BandField::used), 1.0f);
+        setValue (bandParam (*p, 0, BandField::freq), 5000.0f);
+        setValue (bandParam (*p, 0, BandField::gain), 0.0f);
+
+        peq::BandParameters truth;
+        truth.type = peq::FilterType::LowShelf;
+        truth.frequencyHz = 150.0;
+        truth.gainDb = 6.0;
+        truth.analogMatched = true;
+        peq::EQBand shelf;
+        shelf.prepare (48000.0);
+        shelf.setTarget (truth);
+        shelf.snapToTarget();
+
+        p->startMatchLearning();
+        juce::AudioBuffer<float> buf (4, 512);
+        juce::MidiBuffer midi;
+        juce::Random rng (5);
+        std::vector<double> ref (512);
+        const int blocks = 48000 * 12 / 512;
+        for (int block = 0; block < blocks; ++block)
+        {
+            for (int i = 0; i < 512; ++i)
+            {
+                const float x = (rng.nextFloat() - 0.5f) * 0.5f;
+                buf.setSample (0, i, x);
+                buf.setSample (1, i, x);
+                ref[(size_t) i] = (rng.nextDouble() - 0.5) * 0.5;
+            }
+            double* ch[1] { ref.data() };
+            shelf.process (ch, 1, 512);
+            for (int i = 0; i < 512; ++i)
+            {
+                buf.setSample (2, i, (float) ref[(size_t) i]);
+                buf.setSample (3, i, (float) ref[(size_t) i]);
+            }
+            p->processBlock (buf, midi);
+            if (block % 50 == 0)
+                p->pumpMatch();
+        }
+        p->pumpMatch();
+        std::printf ("       EQ Match learned %.1f s of the track and %.1f s of the reference\n",
+                     p->getMatch().sourceSeconds(), p->getMatch().referenceSeconds());
+        check (p->isMatchLearning() && p->getMatch().sourceSeconds() > 11.0 && p->getMatch().referenceSeconds() > 11.0,
+               "EQ Match: learns both the track and the sidechain while playing");
+
+        p->stopMatchLearning();
+        p->getUndoManager().beginNewTransaction();
+        const int added = p->applyMatch (8, 1.0);
+        auto curveDb = [&] (double f)
+        {
+            double db = 0.0;
+            for (int b = 1; b < peq::FilterEngine::numBands; ++b)
+            {
+                if (getValue (bandParam (*p, b, BandField::used)) < 0.5f)
+                    continue;
+                peq::BandParameters bp;
+                bp.type = (peq::FilterType) juce::roundToInt (getValue (bandParam (*p, b, BandField::type)));
+                bp.frequencyHz = getValue (bandParam (*p, b, BandField::freq));
+                bp.gainDb = getValue (bandParam (*p, b, BandField::gain));
+                bp.q = getValue (bandParam (*p, b, BandField::q));
+                bp.analogMatched = true;
+                peq::CascadeCoefficients c;
+                peq::FilterDesign::design (bp, 48000.0, c);
+                db += c.magnitudeDb (f, 48000.0);
+            }
+            return db;
+        };
+        peq::CascadeCoefficients tc;
+        peq::FilterDesign::design (truth, 48000.0, tc);
+        const double want = tc.magnitudeDb (50.0, 48000.0) - tc.magnitudeDb (2000.0, 48000.0);
+        const double got = curveDb (50.0) - curveDb (2000.0);
+        std::printf ("       EQ Match added %d band(s): 50 Hz vs 2 kHz %.2f dB (reference is %.2f dB)\n", added, got, want);
+        check (added >= 1 && added <= 8 && near (got, want, 1.5), "EQ Match: the added bands follow the reference's tone");
+        check (near (getValue (bandParam (*p, 0, BandField::freq)), 5000.0, 0.5)
+                   && near (getValue (bandParam (*p, 0, BandField::gain)), 0.0, 0.01),
+               "EQ Match: bands already in use are left alone");
+
+        p->getUndoManager().undo();
+        int used = 0;
+        for (int b = 0; b < peq::FilterEngine::numBands; ++b)
+            used += getValue (bandParam (*p, b, BandField::used)) >= 0.5f ? 1 : 0;
+        check (used == 1, "EQ Match: one undo takes all the added bands away");
+    }
+
     // Linear phase (1.5).
     {
         auto p = makeProcessor (48000.0, 512);
@@ -1207,6 +1305,26 @@ int main()
             linearAllocs += allocationCount.load();
         }
         check (p->isLinearPhaseActive() && linearAllocs == 0, "no memory allocation in linear phase (kernel changing while playing)");
+
+        // EQ Match learning (the audio thread only fills a ring buffer).
+        setValue (param (*p, peq::params::linearPhase), 0.0f);
+        p->startMatchLearning();
+        long matchAllocs = 0;
+        for (int block = 0; block < 100; ++block)
+        {
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < 512; ++i)
+                    buf.setSample (ch, i, rng.nextFloat() - 0.5f);
+            allocationCount = 0;
+            countAllocations = true;
+            p->processBlock (buf, midi);
+            countAllocations = false;
+            matchAllocs += allocationCount.load();
+            if (block % 10 == 0)
+                p->pumpMatch();
+        }
+        check (p->isMatchLearning() && p->getMatch().sourceSeconds() > 0.5 && matchAllocs == 0,
+               "no memory allocation while EQ Match is learning");
     }
 
     // Stress: random parameters every block, random block sizes (1..4096),

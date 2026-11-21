@@ -5,7 +5,7 @@ Cubase. It has a large interactive EQ graph, a real-time spectrum analyser,
 dynamic EQ on any bell or shelf (with an external sidechain), left/right/mid/side processing per band,
 presets, A/B compare and full automation.
 
-Version 1.5 · Vendor "Home Studio" · Personal use.
+Version 1.6 · Vendor "Home Studio" · Personal use.
 
 ---
 
@@ -288,8 +288,38 @@ Settings (**Analyser** button):
 | Tilt | 0, 3 or 4.5 dB/oct (makes typical music look flat; display only) |
 | Opacity | 25 to 100 % |
 | Peak hold | A thin line showing recent peaks |
+| EQ Match | Opens the EQ Match panel (see below) |
 
 The analyser only runs while the window is open.
+
+### EQ Match (make this track sound like a reference)
+
+EQ Match listens to this track and to a **reference** track (a mix you like,
+another take, the same instrument from another song) and adds bands that
+move this track's tone towards the reference's. It matches the tonal
+balance only, not the level.
+
+![EQ Match panel while learning](screenshot-match.png)
+
+1. In Cubase, activate ParaEQ's **side-chain** (button at the top of the
+   plugin window frame) and send the reference track to *ParaEQ -
+   Side-Chain* with a send, as for the sidechain in Dynamic EQ.
+2. Open **Analyser > EQ Match**. Choose how many bands it may use (4 to 12)
+   and the **Amount** (75 % is a good start; 100 % copies the difference
+   fully, which can sound overdone).
+3. Click **Learn** and play. The two can play together, or one after the
+   other (for example, solo the reference for a while, then play the track);
+   silent parts are ignored. The panel counts the seconds learned for each.
+   Ten seconds or more of typical material works best.
+4. The dashed orange line on the graph shows the correction learned so far.
+   Click **Apply** to add the bands. They go into free bands only (your own
+   bands are left alone), as ordinary bands you can adjust or delete.
+   **Undo** takes them all away in one step.
+
+Closing the panel stops listening. What it learned is kept until you click
+Learn again, so you can Apply again with a different number of bands or
+Amount (undo the first set first). The correction is limited to +/-12 dB,
+and only the range where both tracks have real content is matched.
 
 ---
 
@@ -376,6 +406,9 @@ is in the preset menu. Both settings are saved with the project.
   it's smooth but not sample-accurate.
 - Look-ahead is fixed at 5 ms. The dynamic knee (6 dB) is fixed.
 - Auto Gain is an estimate from the curve, not a loudness measurement.
+- EQ Match needs the reference on the side-chain, matches the long-term
+  average only (not dynamics or stereo), and learns again from scratch at a
+  new sample rate.
 - Linear phase applies only to static Stereo bands, its latency is fixed per
   sample rate, and its curve changes fade in rather than glide.
 - The combined curve is exact only for Stereo bands.

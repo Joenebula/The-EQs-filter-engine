@@ -406,6 +406,82 @@ int main (int argc, char** argv)
         std::printf ("       cursor readout at 440 Hz / +3 dB: \"%s\"\n", text.toRawUTF8());
     }
 
+    // 1.6: EQ Match panel (opened from the Analyser menu).
+    {
+        editor->setSize (1040, 640);
+        auto& panel = editor->getMatchPanel();
+        check (! panel.isVisible(), "EQ Match panel is hidden at first");
+        panel.open();
+        check (panel.isVisible() && panel.getStatusText().contains ("side-chain") && ! panel.getApplyButton().isEnabled(),
+               "EQ Match panel opens and explains the side-chain when it is off");
+        check (panel.getBounds().getY() > 46 && panel.getRight() < editor->getWidth(), "EQ Match panel sits over the graph");
+
+        juce::AudioProcessor::BusesLayout l;
+        l.inputBuses.add (juce::AudioChannelSet::stereo());
+        l.inputBuses.add (juce::AudioChannelSet::stereo());
+        l.outputBuses.add (juce::AudioChannelSet::stereo());
+        proc->setBusesLayout (l);
+        proc->prepareToPlay (48000.0, 512);
+
+        int usedBefore = 0;
+        for (int b = 0; b < peq::FilterEngine::numBands; ++b)
+            usedBefore += value (*proc, b, BandField::used) > 0.5f ? 1 : 0;
+
+        panel.getLearnButton().onClick();
+        check (proc->isMatchLearning() && panel.getLearnButton().getButtonText() == "Stop", "Learn starts listening");
+        peq::BandParameters tilt;
+        tilt.type = peq::FilterType::HighShelf; tilt.frequencyHz = 3000.0; tilt.gainDb = 6.0; tilt.analogMatched = true;
+        peq::EQBand shelf;
+        shelf.prepare (48000.0);
+        shelf.setTarget (tilt);
+        shelf.snapToTarget();
+        juce::AudioBuffer<float> buf (4, 512);
+        juce::MidiBuffer matchMidi;
+        juce::Random matchRng (3);
+        std::vector<double> ref (512);
+        for (int block = 0; block < 48000 * 5 / 512; ++block)
+        {
+            for (int i = 0; i < 512; ++i)
+            {
+                const float x = (matchRng.nextFloat() - 0.5f) * 0.4f;
+                buf.setSample (0, i, x);
+                buf.setSample (1, i, x);
+                ref[(size_t) i] = (matchRng.nextDouble() - 0.5) * 0.4;
+            }
+            double* ch[1] { ref.data() };
+            shelf.process (ch, 1, 512);
+            for (int i = 0; i < 512; ++i)
+            {
+                buf.setSample (2, i, (float) ref[(size_t) i]);
+                buf.setSample (3, i, (float) ref[(size_t) i]);
+            }
+            proc->processBlock (buf, matchMidi);
+            if (block % 40 == 0)
+                proc->pumpMatch();
+        }
+        proc->pumpMatch();
+        panel.update();
+        check (panel.getStatusText().contains ("Listening") && panel.getApplyButton().isEnabled() && graph.isShowingMatchCurve(),
+               "while learning: progress shown, Apply enabled, correction drawn on the graph");
+        std::printf ("       EQ Match status: \"%s\"\n", panel.getStatusText().toRawUTF8());
+        save (*editor, outDir.getChildFile ("10-match.png"));
+
+        panel.getApplyButton().onClick();
+        int usedAfter = 0;
+        for (int b = 0; b < peq::FilterEngine::numBands; ++b)
+            usedAfter += value (*proc, b, BandField::used) > 0.5f ? 1 : 0;
+        check (usedAfter > usedBefore && usedAfter - usedBefore <= panel.getBandsBox().getSelectedId()
+                   && ! proc->isMatchLearning() && panel.getStatusText().contains ("Added") && ! graph.isShowingMatchCurve(),
+               "Apply adds bands (no more than chosen), stops listening, hides the dashed line");
+        std::printf ("       EQ Match status: \"%s\"\n", panel.getStatusText().toRawUTF8());
+        graph.pollParameters();
+        save (*editor, outDir.getChildFile ("11-match-applied.png"));
+
+        panel.getLearnButton().onClick();
+        panel.close();
+        check (! panel.isVisible() && ! proc->isMatchLearning(), "closing the panel stops listening");
+    }
+
     base.reset();
     std::printf ("\n%s (%d failures)\n", failures == 0 ? "ALL GUI CHECKS PASSED" : "GUI CHECKS FAILED", failures);
     return failures == 0 ? 0 : 1;

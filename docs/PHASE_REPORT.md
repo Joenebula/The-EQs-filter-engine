@@ -1,3 +1,35 @@
+# Version 1.6: EQ Match (2026-11-21)
+
+## What changed
+
+- **EQ Match** (Analyser menu > EQ Match): learns the long-term average
+  spectrum of this track (ParaEQ's input) and of a reference on the
+  side-chain, and adds bands (bells, plus shelves at the ends) that make this
+  track's tonal balance follow the reference's.
+- Learning: 8192-point FFT frames (16384 at 88.2/96 kHz), 50 % overlap,
+  frames below -60 dBFS ignored, so the two can be learned at different
+  times. The difference is 1/3-octave smoothed, the overall level difference
+  (average 100 Hz to 10 kHz) removed, limited to +/-12 dB, and set to 0
+  where either signal has no content.
+- Fitting: greedy placement at the largest remaining error (width from the
+  half-error points gives Q; shelves where the error runs to the ends), then
+  a least-squares touch-up of all gains after each new band.
+- Bands go only into free slots, as one undo step. Choice of 4/6/8/12 bands
+  and 25 to 100 % amount. The audio thread only copies samples into two
+  ring buffers while learning; all analysis runs on the message thread.
+- No new parameters (368 as before); nothing new is saved with the project.
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **72 tests, 0 failures** (4 new). Fit to a known 3-band curve: worst error 0.12 dB from 30 Hz to 18 kHz. Noise against an EQ'd copy (+6 dB louder): the fitted bands follow the real EQ within 0.50 dB from 40 Hz to 15 kHz. 50 % amount gives half the correction (3.36 vs 6.71 dB). Silence ignored; the same sound at another level gives nothing above 0.5 dB. |
+| Plugin tests (Linux; Windows CI) | **129 checks, 0 failures** (6 new). Through the real plugin with the side-chain on: 11.9 s learned of each, the added bands give 5.85 dB between 50 Hz and 2 kHz where the reference has 5.92 dB; a band already in use is left alone; one undo removes all added bands; no memory allocation on the audio thread while learning. |
+| ThreadSanitizer (plugin tests, Linux) | See the pull request |
+| GUI tests (Linux, Xvfb) | **All pass** (7 new: panel opens, explains the side-chain, shows progress, draws the correction, Apply adds bands and stops, closing stops listening) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** |
+
 # Version 1.5: linear-phase mode (2026-11-21)
 
 ## What changed

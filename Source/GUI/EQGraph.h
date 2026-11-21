@@ -110,6 +110,11 @@ public:
     /** Analyser display range: 0 dBFS at the top, this at the bottom. */
     static constexpr double analyserFloorDb = -90.0;
 
+    /** EQ Match: the correction learned so far (dB at each frequency),
+        drawn as a dashed line. Empty = not shown. */
+    void setMatchCurve (std::vector<double> frequencies, std::vector<double> db);
+    bool isShowingMatchCurve() const noexcept { return ! matchFreqs.empty(); }
+
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -123,6 +128,7 @@ public:
 
 private:
     void timerCallback() override;
+    std::vector<double> matchFreqs, matchDb;
 
     /** Re-reads the parameters; recomputes the curves only if anything moved. */
     bool refreshFromParameters (bool force);

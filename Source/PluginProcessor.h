@@ -2,6 +2,7 @@
 
 #include "DSP/FilterEngine.h"
 #include "DSP/LinearPhase.h"
+#include "DSP/EQMatch.h"
 #include "DSP/SampleFifo.h"
 #include "PresetManager.h"
 
@@ -39,6 +40,23 @@ public:
     /** Reports a pending latency change to the host now instead of on the
         next message loop pass (message thread; used by tests). */
     void flushLatencyUpdate() { handleUpdateNowIfNeeded(); }
+
+    /** EQ Match (1.6). While learning, the audio thread sends this track's
+        input and the sidechain (the reference) to the matcher, which a
+        message-thread timer feeds. Message thread only. */
+    void startMatchLearning();
+    void stopMatchLearning() noexcept { matchLearning.store (false); }
+    bool isMatchLearning() const noexcept { return matchLearning.load(); }
+    /** Moves the audio collected so far into the matcher (normally the timer;
+        called by tests). */
+    void pumpMatch();
+    const peq::EQMatch& getMatch() const noexcept { return match; }
+    /** Fits up to maxBands bands to `amount` (0..1) of what was learned and
+        writes them into unused bands, as one undo step. Returns how many
+        bands were added (0 if nothing was learned or no band is free). */
+    int applyMatch (int maxBands, double amount);
+    /** True when the host has switched the sidechain input on. */
+    bool isSidechainActive() const;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -204,7 +222,19 @@ private:
     // Look-ahead (1.4): the main channels run through a fixed delay while the
     // dynamic detectors hear the undelayed input.
     void handleAsyncUpdate() override;        // reports the new latency (message thread)
-    void timerCallback() override { updateLinearPhaseKernel(); }
+    void timerCallback() override
+    {
+        updateLinearPhaseKernel();
+        pumpMatch();
+    }
+
+    peq::EQMatch match;
+    peq::SampleFifo matchSourceFifo, matchReferenceFifo;
+    std::vector<float> matchScratch, matchDrain;
+    std::atomic<bool> matchLearning { false };
+    double matchRate = 0.0;
+    void pushToMatch (const juce::AudioBuffer<double>& buffer, int numChannels,
+                      const double* const* sidechain, int numSidechain) noexcept;
     void delayDry (int numChannels, int numSamples) noexcept;
 
     // Linear phase (1.5): bands that are Stereo, static (not dynamic) and on

@@ -2,6 +2,7 @@
 #include "DSP/AutoGain.h"
 #include "PluginEditor.h"
 #include "Parameters.h"
+#include "GUI/BandParams.h"
 
 namespace
 {
@@ -207,6 +208,16 @@ void ParaEQAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     analyserScratch.assign ((size_t) block, 0.0f);
     dryBuffer.setSize (channels, block);
 
+    // EQ Match feeds: about 2.7 s at 48 kHz, drained 25 times a second.
+    matchScratch.assign ((size_t) block, 0.0f);
+    matchSourceFifo.setCapacity (1u << 17);
+    matchReferenceFifo.setCapacity (1u << 17);
+    if (! juce::exactlyEqual (matchRate, sampleRate))
+    {
+        match.prepare (sampleRate);   // a new rate starts the learning afresh
+        matchRate = sampleRate;
+    }
+
     lookaheadSamples = juce::jmax (1, juce::roundToInt (peq::params::lookaheadMs * 0.001 * sampleRate));
     delayLines.setSize (2, lookaheadSamples);
     delayLines.clear();
@@ -321,6 +332,9 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
             for (int k = 0; k < count && first + k < buffer.getNumChannels(); ++k)
                 sidechain[numSidechain++] = buffer.getReadPointer (first + k);
         }
+
+    if (matchLearning.load (std::memory_order_relaxed))
+        pushToMatch (buffer, numChannels, sidechain, numSidechain);
 
     // Look-ahead on/off: restart the delay and tell the host the new latency.
     const bool wantLookahead = lookaheadParam->load() >= 0.5f && lookaheadSamples > 0
@@ -586,6 +600,121 @@ void ParaEQAudioProcessor::pushToAnalyser (peq::SampleFifo& fifo, const juce::Au
         analyserScratch[(size_t) i] = (float) (sum * scale);
     }
     fifo.push (analyserScratch.data(), (size_t) n);
+}
+
+void ParaEQAudioProcessor::pushToMatch (const juce::AudioBuffer<double>& buffer, int numChannels,
+                                        const double* const* sidechain, int numSidechain) noexcept
+{
+    const int n = juce::jmin (buffer.getNumSamples(), (int) matchScratch.size());
+    if (numChannels > 0)
+    {
+        for (int i = 0; i < n; ++i)
+        {
+            double sum = 0.0;
+            for (int ch = 0; ch < numChannels; ++ch)
+                sum += buffer.getSample (ch, i);
+            matchScratch[(size_t) i] = (float) (sum / numChannels);
+        }
+        matchSourceFifo.push (matchScratch.data(), (size_t) n);
+    }
+    if (numSidechain > 0)
+    {
+        for (int i = 0; i < n; ++i)
+        {
+            double sum = 0.0;
+            for (int ch = 0; ch < numSidechain; ++ch)
+                sum += sidechain[ch][i];
+            matchScratch[(size_t) i] = (float) (sum / numSidechain);
+        }
+        matchReferenceFifo.push (matchScratch.data(), (size_t) n);
+    }
+}
+
+void ParaEQAudioProcessor::startMatchLearning()
+{
+    if (matchRate <= 0.0)
+    {
+        match.prepare (getCurrentSampleRateOrDefault());
+        matchRate = getCurrentSampleRateOrDefault();
+    }
+    // Throw away anything left over from an earlier session, then start.
+    matchLearning.store (false);
+    pumpMatch();
+    match.reset();
+    matchLearning.store (true);
+}
+
+void ParaEQAudioProcessor::pumpMatch()
+{
+    if (matchDrain.size() < 8192)
+        matchDrain.resize (8192);
+    const bool keep = matchLearning.load();
+    for (auto* fifo : { &matchSourceFifo, &matchReferenceFifo })
+        for (;;)
+        {
+            const size_t n = fifo->pop (matchDrain.data(), matchDrain.size());
+            if (n == 0)
+                break;
+            if (keep)
+            {
+                if (fifo == &matchSourceFifo)
+                    match.addSource (matchDrain.data(), (int) n);
+                else
+                    match.addReference (matchDrain.data(), (int) n);
+            }
+        }
+}
+
+bool ParaEQAudioProcessor::isSidechainActive() const
+{
+    if (getBusCount (true) < 2)
+        return false;
+    auto* bus = getBus (true, 1);
+    return bus != nullptr && bus->isEnabled();
+}
+
+int ParaEQAudioProcessor::applyMatch (int maxBands, double amount)
+{
+    pumpMatch();
+    if (! match.hasEnough())
+        return 0;
+
+    auto refs = peq::gui::makeBandRefs (apvts);
+    std::vector<int> free;
+    for (int b = 0; b < peq::FilterEngine::numBands; ++b)
+        if (! refs[(size_t) b].isUsed())
+            free.push_back (b);
+    const int limit = juce::jmin (maxBands, (int) free.size());
+    if (limit <= 0)
+        return 0;
+
+    const auto fitted = match.makeBands (limit, amount, analogMatch->load() >= 0.5f);
+    if (fitted.empty())
+        return 0;
+
+    using peq::gui::BandParamRefs;
+    beginUndoStep ("EQ Match");
+    for (size_t k = 0; k < fitted.size(); ++k)
+    {
+        const auto& p = fitted[k];
+        auto& r = refs[(size_t) free[k]];
+        BandParamRefs::setWithGesture (r.type, (float) p.type);
+        BandParamRefs::setWithGesture (r.freq, (float) p.frequencyHz);
+        BandParamRefs::setWithGesture (r.gain, (float) p.gainDb);
+        BandParamRefs::setWithGesture (r.q, (float) p.q);
+        BandParamRefs::setWithGesture (r.slope, 1.0f);   // 12 dB/oct
+        BandParamRefs::setWithGesture (r.mode, (float) peq::ChannelMode::Stereo);
+        for (auto* q : { r.dyn, r.thr, r.range, r.att, r.rel, r.ratio, r.sc })
+        {
+            q->beginChangeGesture();
+            q->setValueNotifyingHost (q->getDefaultValue());
+            q->endChangeGesture();
+        }
+        BandParamRefs::setWithGesture (r.on, 1.0f);
+        BandParamRefs::setWithGesture (r.used, 1.0f);
+    }
+    flushUndo();
+    return (int) fitted.size();
 }
 
 juce::AudioProcessorEditor* ParaEQAudioProcessor::createEditor()
