@@ -16,7 +16,8 @@ namespace
                            anReleaseId { "analyserRelease" }, anPeakId { "analyserPeakHold" },
                            anSmoothId { "analyserSmoothing" }, anOpacityId { "analyserOpacity" },
                            anTiltId { "analyserTilt" },
-                           anSidechainId { "analyserSidechain" };
+                           anSidechainId { "analyserSidechain" },
+                           anResonanceId { "analyserResonances" };
 }
 
 ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
@@ -154,6 +155,7 @@ void ParaEQAudioProcessorEditor::loadAnalyserSettings()
     a.opacity = (float) juce::jlimit (0.1, 1.0, (double) st.getProperty (anOpacityId, (double) a.opacity));
     a.tiltDbPerOctave = juce::jlimit (0.0, 6.0, (double) st.getProperty (anTiltId, a.tiltDbPerOctave));
     a.showSidechain = (bool) st.getProperty (anSidechainId, a.showSidechain);
+    a.findResonances = (bool) st.getProperty (anResonanceId, a.findResonances);
     graph.setAnalyserSettings (a);
 }
 
@@ -168,6 +170,7 @@ void ParaEQAudioProcessorEditor::saveAnalyserSettings (const peq::gui::AnalyserS
     st.setProperty (anOpacityId, (double) a.opacity, nullptr);
     st.setProperty (anTiltId, a.tiltDbPerOctave, nullptr);
     st.setProperty (anSidechainId, a.showSidechain, nullptr);
+    st.setProperty (anResonanceId, a.findResonances, nullptr);
     graph.setAnalyserSettings (a);
 }
 
@@ -184,7 +187,7 @@ void ParaEQAudioProcessorEditor::showAnalyserMenu()
     static const Choice opacities[] = { { "25 %", 0.25 }, { "50 %", 0.5 }, { "75 %", 0.75 }, { "100 %", 1.0 } };
     static const Choice tilts[]     = { { "Off (0 dB/oct)", 0.0 }, { "3 dB/oct", 3.0 }, { "4.5 dB/oct", 4.5 } };
 
-    enum { showBase = 100, orderBase = 200, speedBase = 300, smoothBase = 400, opacityBase = 500, tiltBase = 600, peakId = 1, matchId = 2, sidechainId = 3 };
+    enum { showBase = 100, orderBase = 200, speedBase = 300, smoothBase = 400, opacityBase = 500, tiltBase = 600, peakId = 1, matchId = 2, sidechainId = 3, resonanceId = 4 };
 
     auto addGroup = [] (juce::PopupMenu& m, int base, const Choice* choices, int count, double current)
     {
@@ -208,6 +211,7 @@ void ParaEQAudioProcessorEditor::showAnalyserMenu()
     menu.addSubMenu ("Opacity", opacityM);
     menu.addItem (peakId, "Peak hold", true, a.peakHold);
     menu.addItem (sidechainId, "Show side-chain (another track)", true, a.showSidechain);
+    menu.addItem (resonanceId, "Find resonances (click a marker to cut)", true, a.findResonances);
     menu.addSeparator();
     menu.addItem (matchId, "EQ Match (follow a reference track)...", true, matchPanel.isVisible());
 
@@ -232,6 +236,7 @@ void ParaEQAudioProcessorEditor::showAnalyserMenu()
         else if (r >= tiltBase && r < tiltBase + 3)       n.tiltDbPerOctave = tilts[r - tiltBase].value;
         else if (r == peakId)                             n.peakHold = ! n.peakHold;
         else if (r == sidechainId)                        n.showSidechain = ! n.showSidechain;
+        else if (r == resonanceId)                        n.findResonances = ! n.findResonances;
         safe->saveAnalyserSettings (n);
     });
 }

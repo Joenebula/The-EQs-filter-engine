@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(ParametricEQ VERSION 1.8.0 LANGUAGES C CXX)
+project(ParametricEQ VERSION 1.9.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -46,6 +46,8 @@ add_library(peq_dsp STATIC
     Source/DSP/LinearPhase.cpp
     Source/DSP/EQMatch.h
     Source/DSP/EQMatch.cpp
+    Source/DSP/Resonances.h
+    Source/DSP/Resonances.cpp
     Source/DSP/SpectrumAnalyser.h
     Source/DSP/SpectrumAnalyser.cpp
 )
@@ -66,6 +68,7 @@ if(PEQ_BUILD_TESTS)
         Tests/AutoGainTests.cpp
         Tests/LinearPhaseTests.cpp
         Tests/MatchTests.cpp
+        Tests/ResonanceTests.cpp
     )
     find_package(Threads REQUIRED)
     target_link_libraries(peq_tests PRIVATE peq_dsp Threads::Threads)

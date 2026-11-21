@@ -5,7 +5,7 @@ Cubase. It has a large interactive EQ graph, a real-time spectrum analyser,
 dynamic EQ on any bell or shelf (with an external sidechain), left/right/mid/side processing per band,
 presets, A/B compare and full automation.
 
-Version 1.8 · Vendor "Home Studio" · Personal use.
+Version 1.9 · Vendor "Home Studio" · Personal use.
 
 ---
 
@@ -303,10 +303,29 @@ Settings (**Analyser** button):
 | Tilt | 0, 3 or 4.5 dB/oct (makes typical music look flat; display only) |
 | Opacity | 25 to 100 % |
 | Peak hold | A thin line showing recent peaks |
+| Find resonances | Marks rings in the spectrum with small amber triangles; click one to cut it (see below) |
 | Show side-chain | Also draws the track on ParaEQ's side-chain input, as an amber line (see below) |
 | EQ Match | Opens the EQ Match panel (see below) |
 
 The analyser only runs while the window is open.
+
+### Finding resonances
+
+With **Find resonances** ticked, ParaEQ watches the spectrum (the output, or
+the input if only Pre-EQ is shown) over the last couple of seconds and puts a
+small amber triangle over any narrow peak that sticks out at least 6 dB above
+the music around it: a ringing snare, a boomy room note, a whistle in a
+vocal. Hover over a marker to see its frequency and how far it sticks out.
+**Click a marker** to add a narrow cut there (a bell, roughly three quarters of
+the peak deep, between 3 and 12 dB, with a Q to match its width). It's an
+ordinary band, so adjust it to taste, and Undo removes it.
+
+Markers move as the music changes, and rings a band is already cutting are
+not marked. Steady notes in the music (a held bass note, a sustained vocal)
+can look like rings too, so listen before you cut: **Δ** (Delta listen) is
+handy for checking what the cut removes. Only 40 Hz to 16 kHz is searched.
+
+![Resonance finder: an amber marker over a ring at 3.15 kHz](screenshot-resonances.png)
 
 ### Seeing another track (side-chain)
 

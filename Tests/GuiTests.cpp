@@ -539,6 +539,56 @@ int main (int argc, char** argv)
         graph.setAnalyserSettings (a);
     }
 
+    // 1.9: resonance finder.
+    {
+        auto a = graph.getAnalyserSettings();
+        a.show = peq::gui::AnalyserSettings::Show::post;
+        a.findResonances = true;
+        graph.setAnalyserSettings (a);
+        juce::AudioBuffer<float> buf (4, 512);
+        juce::MidiBuffer rMidi;
+        juce::Random rRng (17);
+        long t = 0;
+        for (int block = 0; block < 300; ++block)
+        {
+            for (int i = 0; i < 512; ++i, ++t)
+            {
+                const float x = (rRng.nextFloat() - 0.5f) * 0.3f
+                                + 0.05f * (float) std::sin (2.0 * 3.14159265358979 * 3150.0 * (double) t / 48000.0);
+                buf.setSample (0, i, x);
+                buf.setSample (1, i, x);
+                buf.setSample (2, i, 0.0f);
+                buf.setSample (3, i, 0.0f);
+            }
+            proc->processBlock (buf, rMidi);
+            graph.updateAnalyser (512.0 / 48000.0);
+        }
+        const auto& rings = graph.getResonances();
+        int ring = -1;
+        for (int i = 0; i < (int) rings.size(); ++i)
+            if (std::abs (std::log2 (rings[(size_t) i].frequencyHz / 3150.0)) < 1.0 / 24.0)
+                ring = i;
+        std::printf ("       resonance finder: %d marker(s); 3.15 kHz ring %s\n", (int) rings.size(), ring >= 0 ? "found" : "missing");
+        check (ring >= 0, "resonance finder marks a ring in the spectrum (3.15 kHz tone in noise)");
+        if (ring >= 0)
+        {
+            check (graph.resonanceAt (graph.resonanceMarkerPosition (ring)) == ring, "the marker can be clicked");
+            graph.repaint();
+            save (*editor, outDir.getChildFile ("14-resonances.png"));
+            const double ringHz = rings[(size_t) ring].frequencyHz;
+            const int b = graph.addBandAtResonance (ring);
+            check (b >= 0 && near (value (*proc, b, BandField::freq), ringHz, 1.0) && value (*proc, b, BandField::gain) <= -3.0f
+                       && value (*proc, b, BandField::q) >= 2.0f && graph.getSelectedBand() == b,
+                   "clicking a marker adds a narrow cut there and selects it");
+            proc->getUndoManager().undo();
+            check (b >= 0 && value (*proc, b, BandField::used) < 0.5f, "one undo removes the cut");
+        }
+        a.findResonances = false;
+        graph.setAnalyserSettings (a);
+        graph.updateAnalyser (0.01);
+        check (graph.getResonances().empty(), "markers go when the finder is switched off");
+    }
+
     base.reset();
     std::printf ("\n%s (%d failures)\n", failures == 0 ? "ALL GUI CHECKS PASSED" : "GUI CHECKS FAILED", failures);
     return failures == 0 ? 0 : 1;

@@ -2,6 +2,7 @@
 
 #include "BandParams.h"
 #include "../DSP/SpectrumAnalyser.h"
+#include "../DSP/Resonances.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -25,6 +26,7 @@ struct AnalyserSettings
     float opacity = 0.75f;
     double tiltDbPerOctave = 4.5;   // pivot at 1 kHz; makes typical music look flat
     bool showSidechain = false;     // 1.8: also draw the side-chain input (another track)
+    bool findResonances = false;    // 1.9: mark rings in the spectrum; click one to cut it
 
     bool showPre() const noexcept  { return show == Show::pre || show == Show::preAndPost; }
     bool showPost() const noexcept { return show == Show::post || show == Show::preAndPost; }
@@ -115,6 +117,14 @@ public:
         drawn as a dashed line. Empty = not shown. */
     void setMatchCurve (std::vector<double> frequencies, std::vector<double> db);
     bool isShowingMatchCurve() const noexcept { return ! matchFreqs.empty(); }
+    /** Resonance finder (1.9): the rings found in the long-term spectrum. */
+    const std::vector<Resonance>& getResonances() const noexcept { return resonances; }
+    /** Adds a narrow cut at resonance `index` (one undo step). Returns the band, or -1. */
+    int addBandAtResonance (int index);
+    /** The marker under a point, or -1. */
+    int resonanceAt (juce::Point<float> position) const;
+    juce::Point<float> resonanceMarkerPosition (int index) const;
+
     /** True once the side-chain line has something to draw (tests). */
     bool hasSidechainSpectrum() const noexcept { return sidechainFrames > 0; }
 
@@ -133,6 +143,12 @@ private:
     void timerCallback() override;
     std::vector<double> matchFreqs, matchDb;
     int sidechainFrames = 0;
+    std::vector<double> longTermPower;           // per bin, ~2 s average (resonance finder)
+    std::vector<Resonance> resonances;
+    std::vector<double> resonanceLevels;         // dBFS at each resonance, for drawing
+    double resonanceClock = 0.0;
+    void updateResonances (const SpectrumAnalyser& source, double elapsedSeconds);
+    double spectrumYForLevel (double dbfs, double hz) const;
 
     /** Re-reads the parameters; recomputes the curves only if anything moved. */
     bool refreshFromParameters (bool force);
