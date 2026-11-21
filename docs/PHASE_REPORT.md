@@ -1,3 +1,36 @@
+# Version 2.0: clash view (2026-11-21)
+
+## What changed
+
+- **Analyser > Show clashes with side-chain**: ~3 s averages of this track's
+  shown spectrum (post, or pre if only pre is shown) and of the side-chain
+  are compared twice a second. On a 1/24-octave grid with 1/3-octave
+  smoothing, a point clashes when both are within 24 dB of their own peak
+  and the side-chain is no more than 6 dB quieter. Runs of at least 1/3
+  octave are trimmed to their core (where both are at least half as strong
+  as at the run's peak); up to 4 are shown, strongest first; clashes with an
+  active cut (1.5 dB or more) within 1/3 octave of the centre are skipped.
+  Each gets a faint red shade and a red bar along the bottom; hovering shows
+  the range and cut; clicking adds a bell at the weighted centre, Q from the
+  core width (0.5 to 4), gain -0.35 x the average (side-chain - track + 6 dB)
+  (1.5 to 4.5 dB), as one undo step.
+- New framework-free `peq::findClashes` (DSP/Clashes.h/.cpp). The editor's
+  band-adding code for resonance cuts and clash cuts is now shared. Editor
+  only: no audio-thread changes. Saved with the analyser settings.
+- The cursor readout moves up when clash bars are showing so they don't
+  overlap.
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **81 tests, 0 failures** (5 new: a full track and a louder bass clash at 58-320 Hz, centre 138 Hz, -2.3 dB; a side-chain 15 dB quieter doesn't clash; tracks in different ranges don't; silence or mismatched input finds nothing; strongest first, count limited) |
+| Plugin tests (Linux; Windows CI) | **140 checks, 0 failures** (unchanged; no audio-thread changes in this version) |
+| ThreadSanitizer | Not re-run: no audio-thread code changed since 1.8 (0 warnings there) |
+| GUI tests (Linux, Xvfb) | **All pass** (5 new: noise on the track with a bass-heavy side-chain shows a clash at 30-680 Hz, the bar can be clicked, clicking adds a wide cut there and selects it, one undo removes it, bars go when switched off) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** |
+
 # Version 1.9: resonance finder (2026-11-21)
 
 ## What changed
