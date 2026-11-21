@@ -695,6 +695,33 @@ int main (int argc, char** argv)
         check (proc->getAnalyserChannel() == ParaEQAudioProcessor::AnalyserChannel::stereo, "back to Stereo");
     }
 
+    // 2.2: listen while dragging.
+    {
+        graph.pollParameters();
+        proc->setSoloBand (-1);
+        check (! graph.getListenWhileDragging(), "listen while dragging: off by default");
+        graph.beginDragForTests (0);
+        check (proc->getSoloBand() == -1 && ! graph.isAuditioning(), "listen while dragging: dragging doesn't solo when off");
+        graph.endDragForTests();
+        graph.setListenWhileDragging (true);
+        check ((bool) proc->getState().state.getProperty ("listenWhileDragging", false), "listen while dragging: the choice is saved with the project");
+        graph.setSelectedBand (0);
+        graph.beginDragForTests (0);
+        check (proc->getSoloBand() == 0 && graph.isAuditioning(), "listen while dragging: the dragged band is soloed");
+        editor->timerCallbackForTests();
+        graph.repaint();
+        save (*editor, outDir.getChildFile ("17-listen.png"));
+        graph.endDragForTests();
+        check (proc->getSoloBand() == -1 && ! graph.isAuditioning(), "listen while dragging: solo ends on release");
+        proc->setSoloBand (2);
+        graph.beginDragForTests (0);
+        check (proc->getSoloBand() == 0, "listen while dragging: overrides an existing solo while dragging");
+        graph.endDragForTests();
+        check (proc->getSoloBand() == 2, "listen while dragging: the earlier solo comes back");
+        proc->setSoloBand (-1);
+        graph.setListenWhileDragging (false);
+    }
+
     base.reset();
     std::printf ("\n%s (%d failures)\n", failures == 0 ? "ALL GUI CHECKS PASSED" : "GUI CHECKS FAILED", failures);
     return failures == 0 ? 0 : 1;

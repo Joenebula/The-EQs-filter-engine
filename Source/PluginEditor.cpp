@@ -19,7 +19,8 @@ namespace
                            anSidechainId { "analyserSidechain" },
                            anResonanceId { "analyserResonances" },
                            anClashId { "analyserClashes" },
-                           anChannelId { "analyserChannel" };
+                           anChannelId { "analyserChannel" },
+                           listenDragId { "listenWhileDragging" };
 }
 
 ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
@@ -79,6 +80,8 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
         addAndMakeVisible (*b);
     updatePresetBar();
     loadAnalyserSettings();
+    graph.setListenWhileDragging ((bool) processor.getState().state.getProperty (listenDragId, false));
+    graph.onListenWhileDraggingChanged = [this] (bool on) { processor.getState().state.setProperty (listenDragId, on, nullptr); };
 
     rangeBox.addItemList ({ "+/- 6 dB", "+/- 12 dB", "+/- 18 dB", "+/- 30 dB" }, 1);
     const double savedRange = (double) state.state.getProperty (displayRangeId, 18.0);

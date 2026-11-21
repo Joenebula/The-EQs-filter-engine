@@ -5,7 +5,7 @@ Cubase. It has a large interactive EQ graph, a real-time spectrum analyser,
 dynamic EQ on any bell or shelf (with an external sidechain), left/right/mid/side processing per band,
 presets, A/B compare and full automation.
 
-Version 2.1 · Vendor "Home Studio" · Personal use.
+Version 2.2 · Vendor "Home Studio" · Personal use.
 
 ---
 
@@ -193,6 +193,19 @@ Stereo, so for L/R/M/S bands it's a guide, not exact.
 that band. It's a quick way to find a harsh or muddy area. Click again to
 stop. Solo is a listening aid; it isn't saved or automated.
 
+### Listen while dragging
+
+Right-click any band and tick **Listen while dragging (all bands)**. From
+then on, while you drag a band's node you hear only that band's region (as
+if Solo were on), and normal playback comes back the moment you let go. This
+is the classic way to hunt for a problem: boost a narrow bell, sweep it
+until the ugly note jumps out, let go, then pull the gain down. The graph
+shows LISTENING: band N while it's happening, and the panel's Solo button
+lights. If another band was soloed, that solo comes back on release. The
+choice is saved with the project; untick it in the same menu.
+
+![Listening to band 1 while dragging it](screenshot-listen.png)
+
 ### Copy and paste
 
 Right-click a dot and choose **Copy band**, or select it and press **Ctrl+C**.
@@ -320,7 +333,7 @@ Side is the useful one with ParaEQ's per-band Side mode. Switch the analyser
 to Side, find the build-up (low-end rumble that should be in the centre,
 harsh cymbal width), then cut it with a band set to **Side** so the centre
 stays untouched. When anything other than Stereo is chosen, the graph says
-so in its top left corner (for example ANALYSER: SIDE), so you don't forget.
+so at the top (for example ANALYSER: SIDE), so you don't forget.
 The display starts afresh when you switch. A mono track has no Side, so
 Side shows nothing on it. The resonance finder and the clash view use
 whichever channel is chosen, but the side-chain line is always the other

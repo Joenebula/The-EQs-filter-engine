@@ -1,3 +1,27 @@
+# Version 2.2: listen while dragging (2026-11-21)
+
+## What changed
+
+- **Right-click a band > Listen while dragging (all bands)**: while a node
+  is dragged, that band is soloed (the existing solo path), and the previous
+  solo, or none, comes back on release, including when the window closes
+  mid-drag. The graph shows "LISTENING: band N (while dragging)" and the
+  panel's Solo button lights. Saved with the project ("listenWhileDragging").
+- The analyser-channel label (2.1) moved to the top centre so it can't
+  overlap the SOLO / DELTA labels in the top left.
+- Editor only: no audio-thread changes.
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **81 tests, 0 failures** (unchanged) |
+| Plugin tests (Linux; Windows CI) | **147 checks, 0 failures** (unchanged) |
+| ThreadSanitizer | Not re-run: no audio-thread code changed since 2.1 (0 warnings there) |
+| GUI tests (Linux, Xvfb) | **All pass** (7 new: off by default; no solo while off; the choice is saved; the dragged band is soloed; solo ends on release; it overrides an existing solo while dragging; the earlier solo comes back) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** |
+
 # Version 2.1: analyser channel (2026-11-21)
 
 ## What changed

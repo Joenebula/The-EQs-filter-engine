@@ -771,7 +771,8 @@ void EQGraph::paint (juce::Graphics& g)
     {
         g.setColour (theme::warning);
         g.setFont (theme::font (12.0f, true));
-        g.drawText ("SOLO: band " + juce::String (processor.getSoloBand() + 1),
+        g.drawText ((auditioning ? "LISTENING: band " : "SOLO: band ") + juce::String (processor.getSoloBand() + 1)
+                        + (auditioning ? " (while dragging)" : ""),
                     plot.reduced (10.0f, 6.0f), juce::Justification::topLeft);
     }
     if (processor.getDeltaListen())
@@ -989,7 +990,7 @@ void EQGraph::drawSpectrum (juce::Graphics& g, juce::Rectangle<float> plot) cons
         static const char* const names[] = { "", "ANALYSER: LEFT", "ANALYSER: RIGHT", "ANALYSER: SIDE" };
         g.setColour (theme::text.withAlpha (0.7f));
         g.setFont (theme::font (11.0f, true));
-        g.drawText (names[analyser.channel], plot.reduced (12.0f, 6.0f), juce::Justification::topLeft);
+        g.drawText (names[analyser.channel], plot.reduced (12.0f, 6.0f), juce::Justification::centredTop);   // top left is for SOLO / DELTA
     }
 
     // dBFS scale for the analyser, small, on the left edge.
@@ -1279,6 +1280,15 @@ void EQGraph::beginDrag (int band, juce::Point<float> mousePos, bool adjustQ)
     dragMovesGain = ! adjustQ && typeHasGain (r.filterType());
 
     processor.beginUndoStep (adjustQ ? "Change Q" : "Move band");
+    if (listenWhileDragging)
+    {
+        // Hear only this band while it moves (2.2); the old solo comes back on release.
+        soloBeforeAudition = processor.getSoloBand();
+        processor.setSoloBand (band);
+        auditioning = true;
+        if (onSelectionChanged)
+            onSelectionChanged (selected);   // lights the panel's Solo button
+    }
     r.freq->beginChangeGesture();
     if (dragMovesGain)
         r.gain->beginChangeGesture();
@@ -1298,6 +1308,20 @@ void EQGraph::endDrag()
         r.q->endChangeGesture();
     dragBand = -1;
     processor.flushUndo();
+    if (auditioning)
+    {
+        auditioning = false;
+        processor.setSoloBand (soloBeforeAudition);
+        if (onSelectionChanged)
+            onSelectionChanged (selected);
+    }
+}
+
+void EQGraph::setListenWhileDragging (bool on)
+{
+    listenWhileDragging = on;
+    if (onListenWhileDraggingChanged)
+        onListenWhileDraggingChanged (on);
 }
 
 void EQGraph::mouseDown (const juce::MouseEvent& e)
@@ -1416,7 +1440,7 @@ void EQGraph::showBandMenu (int band)
     const int slopeIndex = juce::roundToInt (BandParamRefs::get (r.slope));
     const auto mode = r.channelMode();
 
-    enum { typeBase = 100, slopeBase = 200, modeBase = 300, enableId = 1, soloId = 2, resetId = 3, deleteId = 4, copyId = 5, pasteId = 6 };
+    enum { typeBase = 100, slopeBase = 200, modeBase = 300, enableId = 1, soloId = 2, resetId = 3, deleteId = 4, copyId = 5, pasteId = 6, listenId = 7 };
 
     juce::PopupMenu typeMenu, slopeMenu, modeMenu;
     for (int i = 0; i < typeNames().size(); ++i)
@@ -1443,6 +1467,7 @@ void EQGraph::showBandMenu (int band)
     menu.addItem (enableId, "Enabled", true, r.isEnabled());
     menu.addItem (soloId, "Solo (listen to this band)", true, processor.getSoloBand() == band);
     menu.addItem (resetId, "Reset gain", typeHasGain (type));
+    menu.addItem (listenId, "Listen while dragging (all bands)", true, listenWhileDragging);
     menu.addSeparator();
     menu.addItem (copyId, "Copy band (Ctrl+C)");
     menu.addItem (pasteId, "Paste onto this band", clipboardHasBand());
@@ -1483,6 +1508,7 @@ void EQGraph::showBandMenu (int band)
         else if (result == deleteId) self.deleteBand (band);
         else if (result == copyId)   self.copyBand (band);
         else if (result == pasteId)  self.pasteBand (band);
+        else if (result == listenId) self.setListenWhileDragging (! self.listenWhileDragging);
 
         self.processor.flushUndo();
         self.refreshFromParameters (true);
