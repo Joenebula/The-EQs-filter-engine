@@ -589,6 +589,61 @@ int main (int argc, char** argv)
         check (graph.getResonances().empty(), "markers go when the finder is switched off");
     }
 
+    // 2.0: clash view (the side-chain track masking this one). The
+    // side-chain is still on from the EQ Match checks.
+    {
+        auto a = graph.getAnalyserSettings();
+        a.show = peq::gui::AnalyserSettings::Show::post;
+        a.showSidechain = true;
+        a.showClashes = true;
+        graph.setAnalyserSettings (a);
+        juce::AudioBuffer<float> buf (4, 512);
+        juce::MidiBuffer cMidi;
+        juce::Random cRng (23);
+        double rumble = 0.0;
+        for (int block = 0; block < 300; ++block)
+        {
+            for (int i = 0; i < 512; ++i)
+            {
+                const float x = (cRng.nextFloat() - 0.5f) * 0.3f;
+                buf.setSample (0, i, x);
+                buf.setSample (1, i, x);
+                rumble += 0.02 * ((cRng.nextDouble() - 0.5) - rumble);   // a bass-heavy other track
+                buf.setSample (2, i, (float) (rumble * 8.0));
+                buf.setSample (3, i, (float) (rumble * 8.0));
+            }
+            proc->processBlock (buf, cMidi);
+            graph.updateAnalyser (512.0 / 48000.0);
+        }
+        const auto& found = graph.getClashes();
+        for (const auto& c : found)
+            std::printf ("       clash %.0f-%.0f Hz, centre %.0f Hz, cut %.1f dB\n", c.lowHz, c.highHz, c.centreHz, c.suggestedCutDb);
+        check (! found.empty() && found[0].lowHz < 200.0, "clash view marks the low end where the side-chain's bass sits");
+        if (! found.empty())
+        {
+            const auto bar = graph.clashBarArea (0);
+            check (graph.clashAt (bar.getCentre()) == 0, "the clash bar can be clicked");
+            graph.pollParameters();   // pick up the undo above
+            graph.setSelectedBand (0);
+            editor->timerCallbackForTests();
+            graph.repaint();
+            save (*editor, outDir.getChildFile ("15-clashes.png"));
+            const double hz = found[0].centreHz;
+            const double cut = found[0].suggestedCutDb;
+            const int b = graph.addBandAtClash (0);
+            check (b >= 0 && near (value (*proc, b, BandField::freq), hz, 1.0) && near (value (*proc, b, BandField::gain), cut, 0.05)
+                       && value (*proc, b, BandField::gain) < 0.0f && graph.getSelectedBand() == b,
+                   "clicking a clash bar adds a wide cut there and selects it");
+            proc->getUndoManager().undo();
+            check (b >= 0 && value (*proc, b, BandField::used) < 0.5f, "one undo removes the cut");
+        }
+        a.showClashes = false;
+        a.showSidechain = false;
+        graph.setAnalyserSettings (a);
+        graph.updateAnalyser (0.01);
+        check (graph.getClashes().empty(), "clash bars go when the view is switched off");
+    }
+
     base.reset();
     std::printf ("\n%s (%d failures)\n", failures == 0 ? "ALL GUI CHECKS PASSED" : "GUI CHECKS FAILED", failures);
     return failures == 0 ? 0 : 1;

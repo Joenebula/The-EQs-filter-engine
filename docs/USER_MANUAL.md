@@ -5,7 +5,7 @@ Cubase. It has a large interactive EQ graph, a real-time spectrum analyser,
 dynamic EQ on any bell or shelf (with an external sidechain), left/right/mid/side processing per band,
 presets, A/B compare and full automation.
 
-Version 1.9 · Vendor "Home Studio" · Personal use.
+Version 2.0 · Vendor "Home Studio" · Personal use.
 
 ---
 
@@ -305,6 +305,7 @@ Settings (**Analyser** button):
 | Peak hold | A thin line showing recent peaks |
 | Find resonances | Marks rings in the spectrum with small amber triangles; click one to cut it (see below) |
 | Show side-chain | Also draws the track on ParaEQ's side-chain input, as an amber line (see below) |
+| Show clashes with side-chain | Shades the ranges where the side-chain track masks this one; click the red bar to cut (see below) |
 | EQ Match | Opens the EQ Match panel (see below) |
 
 The analyser only runs while the window is open.
@@ -339,6 +340,30 @@ shows until the side-chain is activated in Cubase and something is sent to it.
 The setting is saved with the project, like the other analyser settings.
 
 ![The side-chain (amber) over this track's spectrum](screenshot-sidechain.png)
+
+### Clashes with another track
+
+With **Show clashes with side-chain** ticked, ParaEQ compares this track
+with the track on its side-chain over the last few seconds and shades the
+frequency ranges where the two fight: places where both tracks have a lot
+going on and the other track is about as loud as this one (no more than 6 dB
+quieter). Each clash gets a faint red shade over the graph and a red bar along
+the bottom. Hover over the bar to see the range and the suggested cut.
+**Click the bar** to add a gentle, wide cut there (a bell between 1.5 and
+4.5 dB deep, deeper where the other track is louder, centred where the clash
+is strongest, with a Q to match its width). It's an ordinary band, so adjust
+it to taste, and Undo removes it.
+
+Typical use: put ParaEQ on the bass and send the kick to its side-chain, or
+put it on a guitar and send the vocal. Clashes a band is already cutting are
+not shown. Up to four clashes are shown, between 30 Hz and 16 kHz. The
+side-chain must be set up in Cubase the same way as for Dynamic EQ. You don't
+need **Show side-chain** on, but it helps to see both spectra. A clash is
+only a hint: sometimes the other track is the one to cut, and sometimes a
+dynamic band with **SC** (which only cuts while the other track plays) is
+the better answer.
+
+![Clash view: the side-chain's bass (amber) clashes with this track between 30 and 680 Hz](screenshot-clashes.png)
 
 ### EQ Match (make this track sound like a reference)
 
@@ -454,6 +479,9 @@ is in the preset menu. Both settings are saved with the project.
   it's smooth but not sample-accurate.
 - Look-ahead is fixed at 5 ms. The dynamic knee (6 dB) is fixed.
 - Auto Gain is an estimate from the curve, not a loudness measurement.
+- The clash view only looks at long-term levels, not at timing: two parts
+  that take turns (a kick and a bass that never hit together) can still show
+  a clash.
 - EQ Match needs the reference on the side-chain, matches the long-term
   average only (not dynamics or stereo), and learns again from scratch at a
   new sample rate.

@@ -3,6 +3,7 @@
 #include "BandParams.h"
 #include "../DSP/SpectrumAnalyser.h"
 #include "../DSP/Resonances.h"
+#include "../DSP/Clashes.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -27,6 +28,7 @@ struct AnalyserSettings
     double tiltDbPerOctave = 4.5;   // pivot at 1 kHz; makes typical music look flat
     bool showSidechain = false;     // 1.8: also draw the side-chain input (another track)
     bool findResonances = false;    // 1.9: mark rings in the spectrum; click one to cut it
+    bool showClashes = false;       // 2.0: shade ranges where the side-chain track masks this one
 
     bool showPre() const noexcept  { return show == Show::pre || show == Show::preAndPost; }
     bool showPost() const noexcept { return show == Show::post || show == Show::preAndPost; }
@@ -125,6 +127,16 @@ public:
     int resonanceAt (juce::Point<float> position) const;
     juce::Point<float> resonanceMarkerPosition (int index) const;
 
+    /** Clash view (2.0): ranges where the side-chain track is about as loud
+        as this one, from the long-term spectra of both. */
+    const std::vector<Clash>& getClashes() const noexcept { return clashes; }
+    /** Adds a gentle, wide cut across clash `index` (one undo step). Returns the band, or -1. */
+    int addBandAtClash (int index);
+    /** The clash bar under a point, or -1. */
+    int clashAt (juce::Point<float> position) const;
+    /** The clickable bar along the bottom of the graph for clash `index`. */
+    juce::Rectangle<float> clashBarArea (int index) const;
+
     /** True once the side-chain line has something to draw (tests). */
     bool hasSidechainSpectrum() const noexcept { return sidechainFrames > 0; }
 
@@ -148,6 +160,13 @@ private:
     std::vector<double> resonanceLevels;         // dBFS at each resonance, for drawing
     double resonanceClock = 0.0;
     void updateResonances (const SpectrumAnalyser& source, double elapsedSeconds);
+    std::vector<double> clashTrackPower, clashOtherPower;   // per bin, ~3 s averages (clash view)
+    std::vector<Clash> clashes;
+    double clashClock = 0.0;
+    void updateClashes (const SpectrumAnalyser& track, double elapsedSeconds);
+    bool bandCutsNear (double hz) const;   // an active cut within 1/3 octave
+    /** Adds a static Stereo bell (one undo step) and selects it. Returns the band, or -1 if all are used. */
+    int addCutBand (double hz, double gainDb, double q, const juce::String& undoName);
     double spectrumYForLevel (double dbfs, double hz) const;
 
     /** Re-reads the parameters; recomputes the curves only if anything moved. */

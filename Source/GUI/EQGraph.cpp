@@ -348,7 +348,7 @@ bool EQGraph::updateAnalyser (double elapsedSeconds)
     };
     drain (processor.getPreFifo(), preAnalyser, analyser.showPre());
     drain (processor.getPostFifo(), postAnalyser, analyser.showPost());
-    const bool sc = analyser.enabled() && analyser.showSidechain;
+    const bool sc = analyser.enabled() && (analyser.showSidechain || analyser.showClashes);
     drain (processor.getSidechainFifo(), sidechainAnalyser, sc);
 
     if (analyser.showPre())  fresh |= preAnalyser.computeIfReady (elapsedSeconds);
@@ -365,6 +365,14 @@ bool EQGraph::updateAnalyser (double elapsedSeconds)
         resonances.clear();
         resonanceLevels.clear();
         longTermPower.clear();
+    }
+    if (sc && analyser.showClashes && fresh && sidechainFrames > 0)
+        updateClashes (analyser.showPost() ? postAnalyser : preAnalyser, elapsedSeconds);
+    else if ((! analyser.showClashes || ! analyser.enabled()) && ! clashes.empty())
+    {
+        clashes.clear();
+        clashTrackPower.clear();
+        clashOtherPower.clear();
     }
     return fresh;
 }
@@ -435,10 +443,8 @@ int EQGraph::resonanceAt (juce::Point<float> position) const
     return -1;
 }
 
-int EQGraph::addBandAtResonance (int index)
+int EQGraph::addCutBand (double hz, double gainDb, double q, const juce::String& undoName)
 {
-    if (index < 0 || index >= (int) resonances.size())
-        return -1;
     int band = -1;
     for (int b = 0; b < FilterEngine::numBands && band < 0; ++b)
         if (! bands[(size_t) b].isUsed())
@@ -446,29 +452,118 @@ int EQGraph::addBandAtResonance (int index)
     if (band < 0)
         return -1;
 
-    const auto r = resonances[(size_t) index];
-    processor.beginUndoStep ("Cut resonance");
+    processor.beginUndoStep (undoName);
     auto& p = bands[(size_t) band];
     BandParamRefs::setWithGesture (p.type, (float) FilterType::Bell);
-    BandParamRefs::setWithGesture (p.freq, (float) r.frequencyHz);
-    BandParamRefs::setWithGesture (p.gain, (float) -juce::jlimit (3.0, 12.0, r.prominenceDb * 0.75));
-    BandParamRefs::setWithGesture (p.q, (float) juce::jlimit (2.0, 12.0, r.q));
+    BandParamRefs::setWithGesture (p.freq, (float) hz);
+    BandParamRefs::setWithGesture (p.gain, (float) gainDb);
+    BandParamRefs::setWithGesture (p.q, (float) q);
     BandParamRefs::setWithGesture (p.slope, 1.0f);
     BandParamRefs::setWithGesture (p.mode, (float) ChannelMode::Stereo);
-    for (auto* q : { p.dyn, p.thr, p.range, p.att, p.rel, p.ratio, p.sc })
+    for (auto* x : { p.dyn, p.thr, p.range, p.att, p.rel, p.ratio, p.sc })
     {
-        q->beginChangeGesture();
-        q->setValueNotifyingHost (q->getDefaultValue());
-        q->endChangeGesture();
+        x->beginChangeGesture();
+        x->setValueNotifyingHost (x->getDefaultValue());
+        x->endChangeGesture();
     }
     BandParamRefs::setWithGesture (p.on, 1.0f);
     BandParamRefs::setWithGesture (p.used, 1.0f);
     processor.flushUndo();
 
-    resonances.erase (resonances.begin() + index);
-    resonanceLevels.erase (resonanceLevels.begin() + index);
     refreshFromParameters (true);
     setSelectedBand (band);
+    return band;
+}
+
+int EQGraph::addBandAtResonance (int index)
+{
+    if (index < 0 || index >= (int) resonances.size())
+        return -1;
+    const auto r = resonances[(size_t) index];
+    const int band = addCutBand (r.frequencyHz, -juce::jlimit (3.0, 12.0, r.prominenceDb * 0.75),
+                                 juce::jlimit (2.0, 12.0, r.q), "Cut resonance");
+    if (band >= 0)
+    {
+        resonances.erase (resonances.begin() + index);
+        resonanceLevels.erase (resonanceLevels.begin() + index);
+    }
+    return band;
+}
+
+bool EQGraph::bandCutsNear (double hz) const
+{
+    for (const auto& b : bands)
+        if (b.isUsed() && b.isEnabled() && BandParamRefs::get (b.gain) <= -1.5f
+            && std::abs (std::log2 ((double) BandParamRefs::get (b.freq) / hz)) < 1.0 / 3.0)
+            return true;
+    return false;
+}
+
+void EQGraph::updateClashes (const SpectrumAnalyser& track, double elapsedSeconds)
+{
+    const auto& t = track.levelsDb();
+    const auto& o = sidechainAnalyser.levelsDb();
+    if (t.size() != o.size() || t.empty())
+        return;
+    if (clashTrackPower.size() != t.size())
+    {
+        clashTrackPower.assign (t.size(), 0.0);
+        clashOtherPower.assign (t.size(), 0.0);
+    }
+    const double a = juce::jlimit (0.02, 1.0, elapsedSeconds / 3.0);   // about a 3 s average
+    for (size_t b = 0; b < t.size(); ++b)
+    {
+        clashTrackPower[b] += a * (std::pow (10.0, t[b] / 10.0) - clashTrackPower[b]);
+        clashOtherPower[b] += a * (std::pow (10.0, o[b] / 10.0) - clashOtherPower[b]);
+    }
+
+    clashClock += elapsedSeconds;
+    if (clashClock < 0.5 && ! clashes.empty())
+        return;
+    clashClock = 0.0;
+
+    std::vector<double> tDb (t.size()), oDb (t.size());
+    for (size_t b = 0; b < t.size(); ++b)
+    {
+        tDb[b] = 10.0 * std::log10 (clashTrackPower[b] + 1e-30);
+        oDb[b] = 10.0 * std::log10 (clashOtherPower[b] + 1e-30);
+    }
+    const double binWidth = track.sampleRate() / (double) track.fftSize();
+    clashes.clear();
+    for (const auto& c : peq::findClashes (tDb, oDb, binWidth, 4))
+        if (! bandCutsNear (c.centreHz))   // a cut is already there
+            clashes.push_back (c);
+}
+
+juce::Rectangle<float> EQGraph::clashBarArea (int index) const
+{
+    if (index < 0 || index >= (int) clashes.size())
+        return {};
+    const auto plot = plotArea();
+    const auto& c = clashes[(size_t) index];
+    const float x0 = juce::jmax (plot.getX(), xForFreq (c.lowHz));
+    const float x1 = juce::jmin (plot.getRight(), xForFreq (c.highHz));
+    return { x0, plot.getBottom() - 12.0f, juce::jmax (6.0f, x1 - x0), 10.0f };
+}
+
+int EQGraph::clashAt (juce::Point<float> position) const
+{
+    if (! analyser.enabled() || ! analyser.showClashes)
+        return -1;
+    for (int i = 0; i < (int) clashes.size(); ++i)
+        if (clashBarArea (i).expanded (0.0f, 4.0f).contains (position))
+            return i;
+    return -1;
+}
+
+int EQGraph::addBandAtClash (int index)
+{
+    if (index < 0 || index >= (int) clashes.size())
+        return -1;
+    const auto c = clashes[(size_t) index];
+    const int band = addCutBand (c.centreHz, c.suggestedCutDb, c.q, "Cut clash");
+    if (band >= 0)
+        clashes.erase (clashes.begin() + index);
     return band;
 }
 
@@ -654,7 +749,8 @@ void EQGraph::paint (juce::Graphics& g)
     {
         g.setColour (theme::textDim.brighter (0.2f));
         g.setFont (theme::font (12.0f));
-        g.drawText (cursorReadout (cursor), plot.reduced (10.0f, 6.0f), juce::Justification::bottomLeft);
+        const float clashRoom = analyser.showClashes && ! clashes.empty() ? 14.0f : 0.0f;   // keep clear of the clash bars
+        g.drawText (cursorReadout (cursor), plot.reduced (10.0f, 6.0f).withTrimmedBottom (clashRoom), juce::Justification::bottomLeft);
     }
 
     if (processor.getSoloBand() >= 0)
@@ -817,6 +913,39 @@ void EQGraph::drawSpectrum (juce::Graphics& g, juce::Rectangle<float> plot) cons
         g.strokePath (buildPath (sidechainAnalyser.levelsDb(), false), juce::PathStrokeType (1.4f));
         g.setFont (theme::font (11.0f, true));
         g.drawText ("SIDE-CHAIN", plot.reduced (12.0f, 6.0f).withTrimmedRight (40.0f), juce::Justification::topRight);
+    }
+
+    if (analyser.showClashes)
+    {
+        const auto clashColour = juce::Colour (0xffe0605a);
+        for (int i = 0; i < (int) clashes.size(); ++i)
+        {
+            const auto bar = clashBarArea (i);
+            const bool hot = cursor.x >= 0.0f && bar.expanded (0.0f, 4.0f).contains (cursor);
+            g.setColour (clashColour.withAlpha (hot ? 0.16f : 0.09f));
+            g.fillRect (bar.getX(), plot.getY(), bar.getWidth(), plot.getHeight());
+            g.setColour (clashColour.withAlpha (hot ? 1.0f : 0.8f));
+            g.fillRoundedRectangle (bar, 3.0f);
+            if (hot)
+            {
+                const auto& c = clashes[(size_t) i];
+                auto hz = [] (double f) { return f >= 1000.0 ? juce::String (f / 1000.0, 1) + " kHz"
+                                                             : juce::String (juce::roundToInt (f)) + " Hz"; };
+                const auto text = "Clashes with side-chain " + hz (c.lowHz) + " - " + hz (c.highHz)
+                                  + ": click to cut " + juce::String (c.suggestedCutDb, 1) + " dB";
+                g.setFont (theme::font (12.0f, true));
+                const float w = 360.0f;
+                const float x = juce::jlimit (plot.getX() + 4.0f, plot.getRight() - w - 4.0f, bar.getCentreX() - 0.5f * w);
+                g.drawText (text, juce::Rectangle<float> (x, bar.getY() - 20.0f, w, 16.0f), juce::Justification::centred);
+            }
+        }
+        if (! clashes.empty())
+        {
+            g.setColour (clashColour.withAlpha (0.9f));
+            g.setFont (theme::font (11.0f, true));
+            g.drawText ("CLASHES", plot.reduced (12.0f, 6.0f).withTrimmedRight (40.0f).withTrimmedTop (16.0f),
+                        juce::Justification::topRight);
+        }
     }
 
     if (analyser.findResonances)
@@ -1173,6 +1302,12 @@ void EQGraph::mouseDown (const juce::MouseEvent& e)
     if (const int ring = resonanceAt (e.position); ring >= 0)
     {
         addBandAtResonance (ring);
+        return;
+    }
+
+    if (const int clash = clashAt (e.position); clash >= 0)
+    {
+        addBandAtClash (clash);
         return;
     }
 
