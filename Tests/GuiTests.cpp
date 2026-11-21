@@ -506,6 +506,39 @@ int main (int argc, char** argv)
         editor->setSize (1040, 640);
     }
 
+    // 1.8: the side-chain spectrum in the analyser (the side-chain is on
+    // from the EQ Match checks above).
+    {
+        auto a = graph.getAnalyserSettings();
+        a.show = peq::gui::AnalyserSettings::Show::post;
+        a.showSidechain = true;
+        graph.setAnalyserSettings (a);
+        juce::AudioBuffer<float> buf (4, 512);
+        juce::MidiBuffer scMidi;
+        juce::Random scRng (11);
+        double lowState = 0.0;
+        for (int block = 0; block < 60; ++block)
+        {
+            for (int i = 0; i < 512; ++i)
+            {
+                const float x = (scRng.nextFloat() - 0.5f) * 0.3f;
+                buf.setSample (0, i, x);
+                buf.setSample (1, i, x);
+                lowState += 0.02 * ((scRng.nextDouble() - 0.5) - lowState);   // a dark, kick-like rumble
+                buf.setSample (2, i, (float) (lowState * 8.0));
+                buf.setSample (3, i, (float) (lowState * 8.0));
+            }
+            proc->processBlock (buf, scMidi);
+            graph.updateAnalyser (512.0 / 48000.0);
+        }
+        check (graph.hasSidechainSpectrum(), "analyser draws the side-chain when asked");
+        editor->timerCallbackForTests();
+        graph.repaint();
+        save (*editor, outDir.getChildFile ("13-sidechain.png"));
+        a.showSidechain = false;
+        graph.setAnalyserSettings (a);
+    }
+
     base.reset();
     std::printf ("\n%s (%d failures)\n", failures == 0 ? "ALL GUI CHECKS PASSED" : "GUI CHECKS FAILED", failures);
     return failures == 0 ? 0 : 1;

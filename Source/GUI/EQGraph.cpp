@@ -305,7 +305,7 @@ void EQGraph::setAnalyserSettings (const AnalyserSettings& newSettings)
     analyser = newSettings;
     processor.setAnalyserWanted (analyser.enabled());
     configureAnalysers();
-    for (auto* a : { &preAnalyser, &postAnalyser })
+    for (auto* a : { &preAnalyser, &postAnalyser, &sidechainAnalyser })
     {
         a->setReleaseSeconds (analyser.releaseSeconds);
         a->setPeakHold (analyser.peakHold);
@@ -320,7 +320,7 @@ void EQGraph::configureAnalysers()
         return;
     analyserRate = sr;
     analyserOrder = analyser.fftOrder;
-    for (auto* a : { &preAnalyser, &postAnalyser })
+    for (auto* a : { &preAnalyser, &postAnalyser, &sidechainAnalyser })
     {
         a->configure (analyserOrder, sr);
         a->setReleaseSeconds (analyser.releaseSeconds);
@@ -348,9 +348,16 @@ bool EQGraph::updateAnalyser (double elapsedSeconds)
     };
     drain (processor.getPreFifo(), preAnalyser, analyser.showPre());
     drain (processor.getPostFifo(), postAnalyser, analyser.showPost());
+    const bool sc = analyser.enabled() && analyser.showSidechain;
+    drain (processor.getSidechainFifo(), sidechainAnalyser, sc);
 
     if (analyser.showPre())  fresh |= preAnalyser.computeIfReady (elapsedSeconds);
     if (analyser.showPost()) fresh |= postAnalyser.computeIfReady (elapsedSeconds);
+    if (sc && sidechainAnalyser.computeIfReady (elapsedSeconds))
+    {
+        ++sidechainFrames;
+        fresh = true;
+    }
     return fresh;
 }
 
@@ -689,6 +696,16 @@ void EQGraph::drawSpectrum (juce::Graphics& g, juce::Rectangle<float> plot) cons
             g.setColour (juce::Colour (0xffb0b8c6).withAlpha (0.5f * alpha));
             g.strokePath (buildPath (preAnalyser.peaksDb(), false), juce::PathStrokeType (0.8f));
         }
+    }
+
+    if (analyser.showSidechain && sidechainFrames > 0)
+    {
+        // The side-chain (another track): an amber line, so overlaps with
+        // this track's spectrum stand out.
+        g.setColour (theme::warning.withAlpha (0.85f * alpha));
+        g.strokePath (buildPath (sidechainAnalyser.levelsDb(), false), juce::PathStrokeType (1.4f));
+        g.setFont (theme::font (11.0f, true));
+        g.drawText ("SIDE-CHAIN", plot.reduced (12.0f, 6.0f).withTrimmedRight (40.0f), juce::Justification::topRight);
     }
 
     // dBFS scale for the analyser, small, on the left edge.

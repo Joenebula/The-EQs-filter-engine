@@ -667,6 +667,36 @@ int main()
         check (! q->getDeltaListen(), "delta listen: not saved with the project");
     }
 
+    // Side-chain spectrum feed (1.8): only while the analyser is wanted.
+    {
+        auto p = makeProcessor (48000.0, 512);
+        juce::AudioProcessor::BusesLayout l;
+        l.inputBuses.add (juce::AudioChannelSet::stereo());
+        l.inputBuses.add (juce::AudioChannelSet::stereo());
+        l.outputBuses.add (juce::AudioChannelSet::stereo());
+        p->setBusesLayout (l);
+        p->prepareToPlay (48000.0, 512);
+        juce::AudioBuffer<float> buf (4, 512);
+        juce::MidiBuffer midi;
+        for (int i = 0; i < 512; ++i)
+        {
+            buf.setSample (0, i, 0.0f); buf.setSample (1, i, 0.0f);
+            buf.setSample (2, i, 0.5f); buf.setSample (3, i, 0.25f);
+        }
+        p->processBlock (buf, midi);
+        check (p->getSidechainFifo().available() == 0, "side-chain spectrum: nothing sent while the analyser is closed");
+        p->setAnalyserWanted (true);
+        for (int i = 0; i < 512; ++i)
+        {
+            buf.setSample (2, i, 0.5f); buf.setSample (3, i, 0.25f);
+        }
+        p->processBlock (buf, midi);
+        std::vector<float> got (512);
+        const size_t n = p->getSidechainFifo().pop (got.data(), got.size());
+        check (n == 512 && near (got[100], 0.375, 1e-6), "side-chain spectrum: the analyser gets the side-chain (mono sum)");
+        check (std::abs (buf.getSample (2, 0)) <= 0.0f, "side-chain channels are still cleared on the way out");
+    }
+
     // EQ Match (1.6): learn this track against the sidechain, add bands.
     {
         auto p = makeProcessor (48000.0, 512);

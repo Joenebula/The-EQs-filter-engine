@@ -37,6 +37,7 @@ ParaEQAudioProcessor::ParaEQAudioProcessor()
     // they are never resized while the plugin exists (~0.7 s at 192 kHz).
     preFifo.setCapacity (1 << 17);
     postFifo.setCapacity (1 << 17);
+    sidechainFifo.setCapacity (1 << 17);
 
     using peq::params::BandField;
     for (int b = 0; b < peq::FilterEngine::numBands; ++b)
@@ -338,6 +339,20 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
 
     if (matchLearning.load (std::memory_order_relaxed))
         pushToMatch (buffer, numChannels, sidechain, numSidechain);
+
+    // The side-chain, for the analyser (mono sum).
+    if (numSidechain > 0 && analyserWanted.load (std::memory_order_relaxed))
+    {
+        const int n = juce::jmin (numSamples, (int) analyserScratch.size());
+        for (int i = 0; i < n; ++i)
+        {
+            double sum = 0.0;
+            for (int ch = 0; ch < numSidechain; ++ch)
+                sum += sidechain[ch][i];
+            analyserScratch[(size_t) i] = (float) (sum / numSidechain);
+        }
+        sidechainFifo.push (analyserScratch.data(), (size_t) n);
+    }
 
     // Look-ahead on/off: restart the delay and tell the host the new latency.
     const bool wantLookahead = lookaheadParam->load() >= 0.5f && lookaheadSamples > 0
