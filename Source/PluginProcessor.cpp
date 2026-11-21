@@ -245,6 +245,9 @@ void ParaEQAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     inGain.reset (sampleRate, gainSmoothingSeconds);
     outGain.reset (sampleRate, gainSmoothingSeconds);
     wet.reset (sampleRate, bypassFadeSeconds);
+    deltaMix.reset (sampleRate, gainSmoothingSeconds);
+    deltaMix.setCurrentAndTargetValue (deltaListen.load() ? 1.0 : 0.0);
+    inGainTrace.assign ((size_t) block, 1.0);
 
     inGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain ((double) inputGainDb->load()));
     wet.setCurrentAndTargetValue (bypassParam->get() ? 0.0 : 1.0);
@@ -409,6 +412,8 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
     for (int i = 0; i < numSamples; ++i)
     {
         const double g = inGain.getNextValue();
+        if (i < (int) inGainTrace.size())
+            inGainTrace[(size_t) i] = g;
         for (int ch = 0; ch < numChannels; ++ch)
             data[ch][i] *= g;
         if (ahead)
@@ -453,15 +458,22 @@ void ParaEQAudioProcessor::processDouble (juce::AudioBuffer<double>& buffer)
         delayDry (numChannels, numSamples);
     }
 
-    // 3. Output gain and the bypass crossfade.
+    // 3. Output gain and the bypass crossfade. With delta listen, the
+    //    output is what the EQ changed (EQ output minus its input, before the
+    //    output gain), faded in and out so switching doesn't click.
+    deltaMix.setTargetValue (deltaListen.load (std::memory_order_relaxed) ? 1.0 : 0.0);
+    const bool deltaActive = deltaMix.isSmoothing() || deltaMix.getTargetValue() > 0.0;
     for (int i = 0; i < numSamples; ++i)
     {
         const double g = outGain.getNextValue();
         const double w = wet.getNextValue();
+        const double d = deltaActive ? deltaMix.getNextValue() : 0.0;
+        const double gIn = i < (int) inGainTrace.size() ? inGainTrace[(size_t) i] : 1.0;
         for (int ch = 0; ch < numChannels; ++ch)
         {
             const double dry = dryBuffer.getSample (ch, i);
-            data[ch][i] = dry + w * (data[ch][i] * g - dry);
+            const double normal = dry + w * (data[ch][i] * g - dry);
+            data[ch][i] = d <= 0.0 ? normal : normal + d * (w * (data[ch][i] - gIn * dry) - normal);
         }
     }
 

@@ -1,3 +1,27 @@
+# Version 1.7: Delta listen (2026-11-21)
+
+## What changed
+
+- **Delta listen** (**Δ** button beside Bypass): the output becomes what the
+  EQ changed, the EQ's output minus its input (after input gain, before
+  output gain and Auto Gain), with the dry path delayed to match in Linear
+  mode. Faded in and out over 20 ms. A listening aid like Solo: not a
+  parameter, not saved, switched off when the editor closes. "DELTA" is shown
+  on the graph while on.
+- Top bar spacing at the default width tightened again so the preset name
+  keeps its full size beside the new button.
+
+## What was verified, and where
+
+| Check | Result |
+|---|---|
+| DSP tests, GCC 13 (Linux) | **72 tests, 0 failures** (unchanged) |
+| Plugin tests (Linux; Windows CI) | **137 checks, 0 failures** (8 new). Flat EQ: silence (-inf dB). 1 kHz sine through a +6 dB bell: -0.04 dB (exactly 10^(6/20)-1); through a -6 dB bell: -6.04 dB (exactly 1-10^(-6/20)). 60 Hz: -27.44 dB, the same as the filter maths. Output gain doesn't change it. Linear phase: -6.04 dB. Off again: normal sound. Not saved with the project. |
+| ThreadSanitizer (plugin tests, Linux) | **0 warnings** (the 2 CPU timing checks fail under TSan's slowdown, as expected) |
+| GUI tests (Linux, Xvfb) | **All pass** (5 new: Δ button shown beside Bypass at default and smallest size, switches delta on and off, follows the processor) |
+| Windows build, pluginval strictness 5, installer test | See the pull request's checks |
+| Cubase | **Not tried by a person.** |
+
 # Version 1.6: EQ Match (2026-11-21)
 
 ## What changed

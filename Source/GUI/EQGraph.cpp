@@ -546,6 +546,14 @@ void EQGraph::paint (juce::Graphics& g)
         g.drawText ("SOLO: band " + juce::String (processor.getSoloBand() + 1),
                     plot.reduced (10.0f, 6.0f), juce::Justification::topLeft);
     }
+    if (processor.getDeltaListen())
+    {
+        g.setColour (theme::warning);
+        g.setFont (theme::font (12.0f, true));
+        g.drawText ("DELTA: hearing only what the EQ changes",
+                    plot.reduced (10.0f, 6.0f).withTrimmedTop (processor.getSoloBand() >= 0 ? 16.0f : 0.0f),
+                    juce::Justification::topLeft);
+    }
 
     bool anyUsed = false;
     for (const auto& r : bands)

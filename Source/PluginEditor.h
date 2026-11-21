@@ -26,6 +26,9 @@ public:
     peq::gui::EQGraph& getGraph() noexcept { return graph; }
     peq::gui::BandPanel& getBandPanel() noexcept { return bandPanel; }
     peq::gui::MatchPanel& getMatchPanel() noexcept { return matchPanel; }
+    juce::TextButton& getDeltaButton() noexcept { return deltaButton; }
+    /** Runs one editor timer tick now (tests). */
+    void timerCallbackForTests() { timerCallback(); }
     peq::gui::OutputMeter& getOutputMeter() noexcept { return outputMeter; }
 
     /** Steps through all presets (factory, then user); +1 next, -1 previous. */
@@ -68,6 +71,7 @@ private:
     juce::TextButton undoButton { "Undo" }, redoButton { "Redo" }, bypassButton { "Bypass" };
     juce::TextButton analogButton { "Analog" }, autoGainButton { "Auto" };
     juce::TextButton analyserButton { "Analyser" };
+    juce::TextButton deltaButton { juce::String::fromUTF8 ("\xce\x94") };   // Greek capital delta
     juce::TextButton presetButton, prevPresetButton { "<" }, nextPresetButton { ">" }, abButton { "A" };
     std::unique_ptr<juce::FileChooser> fileChooser;
     juce::ComboBox rangeBox;

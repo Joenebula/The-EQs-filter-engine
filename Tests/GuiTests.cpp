@@ -482,6 +482,30 @@ int main (int argc, char** argv)
         check (! panel.isVisible() && ! proc->isMatchLearning(), "closing the panel stops listening");
     }
 
+    // 1.7: Delta listen button.
+    {
+        editor->setSize (1040, 640);
+        auto& delta = editor->getDeltaButton();
+        check (delta.isVisible() && delta.getWidth() >= 28 && delta.getY() < 46
+                   && delta.getRight() <= editor->getWidth() - 70,
+               "top bar shows the Delta button beside Bypass");
+        delta.setToggleState (true, juce::sendNotificationSync);
+        delta.onClick();
+        check (proc->getDeltaListen(), "Delta button switches delta listen on");
+        graph.repaint();
+        save (*editor, outDir.getChildFile ("12-delta.png"));
+        delta.setToggleState (false, juce::sendNotificationSync);
+        delta.onClick();
+        check (! proc->getDeltaListen(), "Delta button switches it off again");
+        proc->setDeltaListen (true);
+        editor->timerCallbackForTests();
+        check (delta.getToggleState(), "Delta button follows the processor");
+        proc->setDeltaListen (false);
+        editor->setSize (900, 600);
+        check (delta.isVisible() && delta.getWidth() >= 28, "Delta button still there in the smallest window");
+        editor->setSize (1040, 640);
+    }
+
     base.reset();
     std::printf ("\n%s (%d failures)\n", failures == 0 ? "ALL GUI CHECKS PASSED" : "GUI CHECKS FAILED", failures);
     return failures == 0 ? 0 : 1;

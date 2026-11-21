@@ -51,6 +51,13 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
                              "Linear: linear phase (no phase shift between frequencies), analog-accurate shape, "
                              "adds about 90 ms latency.");
     analogButton.onClick = [this] { showCurveMenu(); };
+    deltaButton.setClickingTogglesState (true);
+    deltaButton.setColour (juce::TextButton::buttonOnColourId, peq::theme::warning);
+    deltaButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+    deltaButton.setTooltip ("Delta listen: hear only what the EQ changes (what a cut removes, what a boost adds). "
+                            "A listening aid: not saved, and switched off when the window closes.");
+    deltaButton.onClick = [this] { processor.setDeltaListen (deltaButton.getToggleState()); graph.repaint(); };
+    addAndMakeVisible (deltaButton);
     autoGainButton.setClickingTogglesState (true);
     autoGainButton.setColour (juce::TextButton::buttonOnColourId, peq::theme::accent);
     analyserButton.onClick = [this] { showAnalyserMenu(); };
@@ -129,6 +136,7 @@ ParaEQAudioProcessorEditor::~ParaEQAudioProcessorEditor()
 {
     processor.setAnalyserWanted (false);
     processor.stopMatchLearning();
+    processor.setDeltaListen (false);
     setLookAndFeel (nullptr);
 }
 
@@ -246,6 +254,8 @@ void ParaEQAudioProcessorEditor::timerCallback()
     updateAutoGainTooltip();
     updateCurveButton();
     matchPanel.update();
+    if (deltaButton.getToggleState() != processor.getDeltaListen())
+        deltaButton.setToggleState (processor.getDeltaListen(), juce::dontSendNotification);
 }
 
 void ParaEQAudioProcessorEditor::updateCurveButton()
@@ -590,16 +600,18 @@ void ParaEQAudioProcessorEditor::resized()
     auto bar = area.removeFromTop (topBarHeight).reduced (10, 9);
     const bool compact = getWidth() < 960;
     const bool mid = getWidth() < 1180;      // default size: tighter spacing
-    bar.removeFromLeft (compact ? 72 : 92);  // title
+    bar.removeFromLeft (compact ? 72 : (mid ? 84 : 92));  // title
 
     // Right side: IN, OUT, meter, Bypass.
-    bypassButton.setBounds (bar.removeFromRight (compact ? 62 : 70));
-    bar.removeFromRight (compact ? 6 : 10);
+    bypassButton.setBounds (bar.removeFromRight (compact ? 62 : (mid ? 66 : 70)));
+    bar.removeFromRight (4);
+    deltaButton.setBounds (bar.removeFromRight (compact ? 28 : 32));
+    bar.removeFromRight (compact ? 6 : (mid ? 6 : 10));
     outputMeter.setBounds (bar.removeFromRight (14).withSizeKeepingCentre (14, juce::jmin (bar.getHeight() + 6, 34)));
     bar.removeFromRight (compact ? 6 : 10);
     autoGainButton.setBounds (bar.removeFromRight (compact ? 40 : (mid ? 44 : 48)));
     bar.removeFromRight (compact ? 2 : 6);
-    const int knobW = compact ? 30 : (mid ? 80 : 100);   // compact: knob only, value on hover/drag
+    const int knobW = compact ? 30 : (mid ? 76 : 100);   // compact: knob only, value on hover/drag
     for (auto* k : { &inGainKnob, &outGainKnob })
         k->setTextBoxStyle (compact ? juce::Slider::NoTextBox : juce::Slider::TextBoxRight, false, mid ? 52 : 58, 18);
     outGainKnob.setBounds (bar.removeFromRight (knobW));
@@ -618,17 +630,17 @@ void ParaEQAudioProcessorEditor::resized()
     bar.removeFromRight (compact ? 4 : (mid ? 6 : 10));
 
     // Left side: Undo, Redo, presets, A/B, range, analyser.
-    undoButton.setBounds (bar.removeFromLeft (compact ? 42 : (mid ? 52 : 56)));
+    undoButton.setBounds (bar.removeFromLeft (compact ? 42 : (mid ? 48 : 56)));
     bar.removeFromLeft (4);
-    redoButton.setBounds (bar.removeFromLeft (compact ? 42 : (mid ? 52 : 56)));
+    redoButton.setBounds (bar.removeFromLeft (compact ? 42 : (mid ? 48 : 56)));
     bar.removeFromLeft (compact ? 6 : (mid ? 10 : 14));
 
     rangeLabel.setVisible (false);
     analogButton.setBounds (bar.removeFromRight (compact ? 52 : 62));
     bar.removeFromRight (4);
-    analyserButton.setBounds (bar.removeFromRight (compact ? 64 : (mid ? 74 : 80)));
+    analyserButton.setBounds (bar.removeFromRight (compact ? 64 : (mid ? 72 : 80)));
     bar.removeFromRight (compact ? 4 : 6);
-    rangeBox.setBounds (bar.removeFromRight (compact ? 88 : (mid ? 88 : 98)));
+    rangeBox.setBounds (bar.removeFromRight (compact ? 88 : (mid ? 82 : 98)));
     bar.removeFromRight (compact ? 4 : (mid ? 6 : 10));
 
     abButton.setBounds (bar.removeFromRight (34));
