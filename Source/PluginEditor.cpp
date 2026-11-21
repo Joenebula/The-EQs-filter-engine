@@ -45,8 +45,10 @@ ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
 
     undoButton.onClick = [this] { undo(); };
     redoButton.onClick = [this] { redo(); };
-    undoButton.setTooltip ("Undo (Ctrl+Z)");
-    redoButton.setTooltip ("Redo (Ctrl+Y)");
+    undoButton.setTooltip ("Undo (Ctrl+Z). Right-click for the list of recent steps");
+    redoButton.setTooltip ("Redo (Ctrl+Y). Right-click for the list of undone steps");
+    undoButton.addMouseListener (&undoHistoryClick, false);
+    redoButton.addMouseListener (&redoHistoryClick, false);
     bypassButton.setClickingTogglesState (true);
     bypassButton.setColour (juce::TextButton::buttonOnColourId, peq::theme::warning);
     analogButton.setClickingTogglesState (false);
@@ -144,6 +146,8 @@ ParaEQAudioProcessorEditor::~ParaEQAudioProcessorEditor()
     processor.setAnalyserWanted (false);
     processor.stopMatchLearning();
     processor.setDeltaListen (false);
+    undoButton.removeMouseListener (&undoHistoryClick);
+    redoButton.removeMouseListener (&redoHistoryClick);
     setLookAndFeel (nullptr);
 }
 
@@ -271,6 +275,63 @@ void ParaEQAudioProcessorEditor::redo()
 {
     processor.flushUndo();
     processor.getUndoManager().redo();
+}
+
+namespace
+{
+juce::StringArray historyNames (juce::StringArray names)
+{
+    names.removeRange (25, names.size());
+    for (auto& n : names)
+        if (n.trim().isEmpty())
+            n = "Edit";
+    return names;
+}
+} // namespace
+
+juce::StringArray ParaEQAudioProcessorEditor::getUndoHistory()
+{
+    return historyNames (processor.getUndoManager().getUndoDescriptions());
+}
+
+juce::StringArray ParaEQAudioProcessorEditor::getRedoHistory()
+{
+    return historyNames (processor.getUndoManager().getRedoDescriptions());
+}
+
+void ParaEQAudioProcessorEditor::undoSteps (int count)
+{
+    processor.flushUndo();
+    for (int i = 0; i < count && processor.getUndoManager().canUndo(); ++i)
+        processor.getUndoManager().undo();
+}
+
+void ParaEQAudioProcessorEditor::redoSteps (int count)
+{
+    processor.flushUndo();
+    for (int i = 0; i < count && processor.getUndoManager().canRedo(); ++i)
+        processor.getUndoManager().redo();
+}
+
+void ParaEQAudioProcessorEditor::showHistoryMenu (bool undoSide)
+{
+    processor.flushUndo();
+    const auto names = undoSide ? getUndoHistory() : getRedoHistory();
+    juce::PopupMenu menu;
+    menu.addSectionHeader (undoSide ? "Undo back to before..." : "Redo up to and including...");
+    if (names.isEmpty())
+        menu.addItem (-1, undoSide ? "Nothing to undo" : "Nothing to redo", false);
+    for (int i = 0; i < names.size(); ++i)
+        menu.addItem (i + 1, juce::String (i + 1) + ".  " + names[i]);
+    juce::Component::SafePointer<ParaEQAudioProcessorEditor> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (undoSide ? &undoButton : &redoButton),
+                        [safe, undoSide] (int r)
+    {
+        if (safe == nullptr || r <= 0)
+            return;
+        if (undoSide) safe->undoSteps (r);
+        else          safe->redoSteps (r);
+    });
 }
 
 void ParaEQAudioProcessorEditor::timerCallback()
