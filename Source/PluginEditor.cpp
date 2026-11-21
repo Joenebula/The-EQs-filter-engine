@@ -18,7 +18,8 @@ namespace
                            anTiltId { "analyserTilt" },
                            anSidechainId { "analyserSidechain" },
                            anResonanceId { "analyserResonances" },
-                           anClashId { "analyserClashes" };
+                           anClashId { "analyserClashes" },
+                           anChannelId { "analyserChannel" };
 }
 
 ParaEQAudioProcessorEditor::ParaEQAudioProcessorEditor (ParaEQAudioProcessor& p)
@@ -158,6 +159,7 @@ void ParaEQAudioProcessorEditor::loadAnalyserSettings()
     a.showSidechain = (bool) st.getProperty (anSidechainId, a.showSidechain);
     a.findResonances = (bool) st.getProperty (anResonanceId, a.findResonances);
     a.showClashes = (bool) st.getProperty (anClashId, a.showClashes);
+    a.channel = juce::jlimit (0, 3, (int) st.getProperty (anChannelId, a.channel));
     graph.setAnalyserSettings (a);
 }
 
@@ -174,6 +176,7 @@ void ParaEQAudioProcessorEditor::saveAnalyserSettings (const peq::gui::AnalyserS
     st.setProperty (anSidechainId, a.showSidechain, nullptr);
     st.setProperty (anResonanceId, a.findResonances, nullptr);
     st.setProperty (anClashId, a.showClashes, nullptr);
+    st.setProperty (anChannelId, a.channel, nullptr);
     graph.setAnalyserSettings (a);
 }
 
@@ -189,8 +192,9 @@ void ParaEQAudioProcessorEditor::showAnalyserMenu()
     static const Choice smooths[]   = { { "Off", 0.0 }, { "1/12 octave", 1.0 / 12.0 }, { "1/6 octave", 1.0 / 6.0 }, { "1/3 octave", 1.0 / 3.0 } };
     static const Choice opacities[] = { { "25 %", 0.25 }, { "50 %", 0.5 }, { "75 %", 0.75 }, { "100 %", 1.0 } };
     static const Choice tilts[]     = { { "Off (0 dB/oct)", 0.0 }, { "3 dB/oct", 3.0 }, { "4.5 dB/oct", 4.5 } };
+    static const Choice channels[]  = { { "Stereo (L+R)", 0 }, { "Left", 1 }, { "Right", 2 }, { "Side (L-R)", 3 } };
 
-    enum { showBase = 100, orderBase = 200, speedBase = 300, smoothBase = 400, opacityBase = 500, tiltBase = 600, peakId = 1, matchId = 2, sidechainId = 3, resonanceId = 4, clashId = 5 };
+    enum { showBase = 100, orderBase = 200, speedBase = 300, smoothBase = 400, opacityBase = 500, tiltBase = 600, channelBase = 700, peakId = 1, matchId = 2, sidechainId = 3, resonanceId = 4, clashId = 5 };
 
     auto addGroup = [] (juce::PopupMenu& m, int base, const Choice* choices, int count, double current)
     {
@@ -198,7 +202,7 @@ void ParaEQAudioProcessorEditor::showAnalyserMenu()
             m.addItem (base + i, choices[i].name, true, std::abs (choices[i].value - current) < 1.0e-6);
     };
 
-    juce::PopupMenu menu, orderM, speedM, smoothM, opacityM, tiltM;
+    juce::PopupMenu menu, orderM, speedM, smoothM, opacityM, tiltM, channelM;
     menu.addSectionHeader ("Show");
     addGroup (menu, showBase, shows, 4, (double) (int) a.show);
     menu.addSeparator();
@@ -207,6 +211,8 @@ void ParaEQAudioProcessorEditor::showAnalyserMenu()
     addGroup (smoothM, smoothBase, smooths, 4, a.smoothingOctaves);
     addGroup (opacityM, opacityBase, opacities, 4, (double) a.opacity);
     addGroup (tiltM, tiltBase, tilts, 3, a.tiltDbPerOctave);
+    addGroup (channelM, channelBase, channels, 4, (double) a.channel);
+    menu.addSubMenu ("Channel", channelM);
     menu.addSubMenu ("Resolution", orderM);
     menu.addSubMenu ("Speed", speedM);
     menu.addSubMenu ("Smoothing", smoothM);
@@ -238,6 +244,7 @@ void ParaEQAudioProcessorEditor::showAnalyserMenu()
         else if (r >= smoothBase && r < smoothBase + 4)   n.smoothingOctaves = smooths[r - smoothBase].value;
         else if (r >= opacityBase && r < opacityBase + 4) n.opacity = (float) opacities[r - opacityBase].value;
         else if (r >= tiltBase && r < tiltBase + 3)       n.tiltDbPerOctave = tilts[r - tiltBase].value;
+        else if (r >= channelBase && r < channelBase + 4) n.channel = r - channelBase;
         else if (r == peakId)                             n.peakHold = ! n.peakHold;
         else if (r == sidechainId)                        n.showSidechain = ! n.showSidechain;
         else if (r == resonanceId)                        n.findResonances = ! n.findResonances;

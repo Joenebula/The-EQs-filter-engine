@@ -618,13 +618,29 @@ void ParaEQAudioProcessor::pushToAnalyser (peq::SampleFifo& fifo, const juce::Au
         return;
 
     const int n = juce::jmin (buffer.getNumSamples(), (int) analyserScratch.size());
-    const double scale = 1.0 / (double) numChannels;
-    for (int i = 0; i < n; ++i)
+    const auto channel = (AnalyserChannel) analyserChannel.load (std::memory_order_relaxed);
+    if (channel == AnalyserChannel::stereo || (numChannels < 2 && channel != AnalyserChannel::side))
     {
-        double sum = 0.0;
-        for (int ch = 0; ch < numChannels; ++ch)
-            sum += buffer.getSample (ch, i);
-        analyserScratch[(size_t) i] = (float) (sum * scale);
+        const double scale = 1.0 / (double) numChannels;
+        for (int i = 0; i < n; ++i)
+        {
+            double sum = 0.0;
+            for (int ch = 0; ch < numChannels; ++ch)
+                sum += buffer.getSample (ch, i);
+            analyserScratch[(size_t) i] = (float) (sum * scale);
+        }
+    }
+    else if (channel == AnalyserChannel::side)
+    {
+        for (int i = 0; i < n; ++i)
+            analyserScratch[(size_t) i] = numChannels < 2 ? 0.0f
+                                                          : (float) (0.5 * (buffer.getSample (0, i) - buffer.getSample (1, i)));
+    }
+    else
+    {
+        const int ch = channel == AnalyserChannel::left ? 0 : 1;
+        for (int i = 0; i < n; ++i)
+            analyserScratch[(size_t) i] = (float) buffer.getSample (ch, i);
     }
     fifo.push (analyserScratch.data(), (size_t) n);
 }

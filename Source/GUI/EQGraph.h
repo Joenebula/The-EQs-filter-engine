@@ -29,6 +29,7 @@ struct AnalyserSettings
     bool showSidechain = false;     // 1.8: also draw the side-chain input (another track)
     bool findResonances = false;    // 1.9: mark rings in the spectrum; click one to cut it
     bool showClashes = false;       // 2.0: shade ranges where the side-chain track masks this one
+    int channel = 0;                // 2.1: 0 stereo (L+R), 1 left, 2 right, 3 side (L-R)
 
     bool showPre() const noexcept  { return show == Show::pre || show == Show::preAndPost; }
     bool showPost() const noexcept { return show == Show::post || show == Show::preAndPost; }
@@ -136,6 +137,9 @@ public:
     int clashAt (juce::Point<float> position) const;
     /** The clickable bar along the bottom of the graph for clash `index`. */
     juce::Rectangle<float> clashBarArea (int index) const;
+
+    /** The output analyser, as drawn (tests). */
+    const SpectrumAnalyser& getPostAnalyser() const noexcept { return postAnalyser; }
 
     /** True once the side-chain line has something to draw (tests). */
     bool hasSidechainSpectrum() const noexcept { return sidechainFrames > 0; }
